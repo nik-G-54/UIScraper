@@ -1,7 +1,7 @@
 import { buildAssetIndex } from '@/src/core/assets';
 import { applyNodeIds } from '@/src/core/motion/collect';
 import { addComponentStates, analyzeLayout, buildTree, stateSelectors } from '@/src/core/components';
-import { generateDesignMd } from '@/src/core/output';
+import { generateAgentPrompt, generateDesignMd } from '@/src/core/output';
 import { emptyTokens, generateThemeCss, generateTokens } from '@/src/core/tokens';
 import { planEffectFrames, planHeroFrames } from '@/src/core/motion/frames';
 import { ASSET_LIMITS, FRAME_LIMITS, MOTION_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
@@ -16,6 +16,7 @@ import type {
   CaptureWarning,
   CssData,
   DesignTokens,
+  RawImage,
   LayoutAnalysis,
   MotionFrameIndex,
   ScreenshotIndex,
@@ -46,6 +47,8 @@ export interface PackResult {
   assets: AssetIndex;
   screens: ScreenshotIndex;
   designMd: string;
+  /** AGENT_PROMPT.md, ready to paste into a coding agent. */
+  agentPrompt: string;
   warnings: CaptureWarning[];
   zip: { name: string; blob: Blob; fileCount: number } | null;
   /** Set when the zip was built but Chrome could not save it (the blob can be saved again). */
@@ -98,6 +101,7 @@ export async function generatePack(
   let tokensFailed: boolean;
   let layout: LayoutAnalysis = { sections: [], components: [], warnings: [] };
   let rawAssets: Awaited<ReturnType<typeof requestAssets>> | null = null;
+  const posterImages: RawImage[] = [];
   let screens: ScreenshotIndex = noScreens();
   let screenFiles: PackFile[] = [];
 
@@ -185,6 +189,10 @@ export async function generatePack(
       const ids = await attempt<Array<number | null> | null>(warnings, 'motion-ids-failed', 'Motion targets could not be matched to captured nodes', null, () => requestMotionIds(tab.id));
       motion = ids ? applyNodeIds(sampled, ids) : sampled;
       warnings.push(...motion.warnings);
+      // Video posters are images the rebuild needs; the videos themselves are never downloaded.
+      for (const video of motion.videos) {
+        if (video.poster && video.target.nodeId !== null) posterImages.push({ nodeId: video.target.nodeId, url: video.poster, srcset: null, naturalWidth: 0, naturalHeight: 0, alt: 'video poster', inPicture: false });
+      }
     }
     capture.meta.emulated = emulated;
     if (capture.meta.captureWidth < MIN_DESKTOP_WIDTH) {
@@ -217,6 +225,7 @@ export async function generatePack(
     // 6. Assets as the page sees them, then screenshots while the debugger is still attached.
     onStep('collecting-assets');
     rawAssets = await attempt(warnings, 'assets-failed', 'Images and SVGs could not be read from the page', null, () => requestAssets(tab.id, ASSET_LIMITS));
+    if (rawAssets && posterImages.length > 0) rawAssets = { ...rawAssets, images: [...rawAssets.images, ...posterImages] };
 
     onStep('taking-screenshots');
     if (!session) {
@@ -256,12 +265,23 @@ export async function generatePack(
     'design-md-failed',
     'design.md could not be generated',
     `# Design pack\n\ndesign.md could not be generated. See tokens.json and capture.json.\n`,
-    () => generateDesignMd({ capture, tokens, themeCss, css, layout, assets, screens, warnings: allWarnings, maxChars: OUTPUT_LIMITS.maxDesignMdChars }),
+    () => generateDesignMd({ capture, tokens, themeCss, css, layout, assets, screens, motion, motionFrames, warnings: allWarnings, maxChars: OUTPUT_LIMITS.maxDesignMdChars }),
+  );
+  const agentPrompt = await attempt(allWarnings, 'agent-prompt-failed', 'AGENT_PROMPT.md could not be generated', '# Agent prompt\n\nRead ./design/design.md and rebuild every section in its build checklist.\n', () =>
+    generateAgentPrompt({
+      title: capture.meta.title || capture.meta.url,
+      sections: layout.sections.map((s) => ({ name: s.name, screenshot: screens.sections.find((x) => x.name === s.name)?.path ?? null })),
+      libraries: motion?.libraries ?? [],
+      hasMotion: motion !== null,
+      hasRevealPresets: (motion?.revealPresets.length ?? 0) > 0,
+      hasLoader: motionFrames.loader?.detected === true,
+    }),
   );
 
   onStep('zipping');
   const files: PackFile[] = [
     { path: 'design.md', data: designMd },
+    { path: 'AGENT_PROMPT.md', data: agentPrompt },
     { path: 'tokens.json', data: `${JSON.stringify(tokens, null, 2)}\n` },
     { path: 'theme.css', data: themeCss },
   ];
@@ -286,5 +306,5 @@ export async function generatePack(
   }
 
   onStep('done');
-  return { capture, motion, motionFrames, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
+  return { capture, motion, motionFrames, css, tokens, tokensFailed, layout, assets, screens, designMd, agentPrompt, warnings: allWarnings, zip, saveError };
 }

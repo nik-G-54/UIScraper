@@ -11,6 +11,7 @@ const PREVIEW_CHARS = 6_000;
 export function PackResultView({ pack }: { pack: PackResult }) {
   const [expanded, setExpanded] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(pack.saveError);
+  const [copied, setCopied] = useState<'ok' | string | null>(null);
   const [saved, setSaved] = useState(pack.zip !== null && pack.saveError === null);
   const preview = expanded ? pack.designMd : pack.designMd.slice(0, PREVIEW_CHARS);
 
@@ -22,6 +23,15 @@ export function PackResultView({ pack }: { pack: PackResult }) {
       setSaved(true);
     } catch (error) {
       setSaveError(toErrorMessage(error));
+    }
+  };
+
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(pack.agentPrompt);
+      setCopied('ok');
+    } catch (error) {
+      setCopied(`Could not copy: ${toErrorMessage(error)}`);
     }
   };
 
@@ -53,6 +63,15 @@ export function PackResultView({ pack }: { pack: PackResult }) {
           >
             {saved ? 'Save the zip again' : 'Save the zip'}
           </button>
+          <button
+            type="button"
+            onClick={() => void copyPrompt()}
+            className="mt-2 ml-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 hover:bg-slate-100"
+          >
+            Copy agent prompt
+          </button>
+          {copied === 'ok' && <p className="mt-2 text-xs text-green-700">Agent prompt copied. Paste it into Claude Code, Antigravity or Cursor with the unzipped pack in ./design.</p>}
+          {copied && copied !== 'ok' && <p className="mt-2 text-xs text-red-700">{copied}</p>}
         </Card>
       ) : (
         <ErrorBanner title="No zip was produced" message="Building the zip failed; see the warnings below. design.md is still shown." />

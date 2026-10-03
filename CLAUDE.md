@@ -171,7 +171,7 @@ Resume from the first unticked milestone. After each: typecheck, lint, test, bui
 
 - [x] M1: Motion capture (extractor): libraries, running animations, scroll reveals, scroll-linked effects, carousels, videos -> `motion` in capture.json
 - [x] M2: Motion frames (hero, per-effect) + optional page-load capture (loader detection) -> assets/motion/
-- [ ] M3: design.md "Motion & interactions" + "## 0. Build checklist" + AGENT_PROMPT.md + "Copy agent prompt" button
+- [x] M3: design.md "Motion & interactions" + "## 0. Build checklist" + AGENT_PROMPT.md + "Copy agent prompt" button
 - [ ] M4: AI layer (Gemini REST, pre-checks, retry/fallback, validator, final assembly, masking, design.rules.md)
 
 ## Motion (final batch)
@@ -187,6 +187,10 @@ Resume from the first unticked milestone. After each: typecheck, lint, test, bui
   `assets/motion/`. Page-load capture (`capturePageLoad`, default off) reloads with the debugger attached, then pack.ts re-injects the extractor.
   Scroll is always restored after frames. Scroll-linked frames capture the viewport (not an element crop); reveal "before" frames show the
   revealed state if the page does not hide elements again when they leave the viewport.
+
+- M3: design.md starts with `## 0. Build checklist` (every section + screenshot, never capped) and section 8 is "Motion & interactions"
+  (`output/motionMd.ts`; library -> Next.js advice in `motion/advice.ts`). `output/agentPrompt.ts` makes AGENT_PROMPT.md (zip root; assumes the pack
+  in `./design`); the panel's "Copy agent prompt" button copies `PackResult.agentPrompt`. Video posters join the image assets; videos are never downloaded.
 
 ## Roadmap
 

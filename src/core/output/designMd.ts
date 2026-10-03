@@ -10,19 +10,26 @@ import type {
   DesignTokens,
   KeyElement,
   LayoutAnalysis,
+  MotionData,
+  MotionFrameIndex,
   PageSection,
   ScreenshotIndex,
 } from '../../shared/types';
+import { buildChecklist } from './agentPrompt';
+import { motionSection } from './motionMd';
 import { baseFontSize, colorNames, typeScaleNames } from '../tokens/theme';
 
 export interface DesignMdInput {
-  capture: Pick<CaptureResult, 'meta' | 'stats'>;
+  capture: Pick<CaptureResult, 'meta' | 'stats' | 'placeholders' | 'nodes'>;
   tokens: DesignTokens;
   themeCss: string;
   css: CssData;
   layout: LayoutAnalysis;
   assets: AssetIndex;
   screens: ScreenshotIndex;
+  /** Sampled motion; null/undefined when it was off or failed. */
+  motion?: MotionData | null;
+  motionFrames?: MotionFrameIndex | null;
   /** Every warning collected while generating the pack. */
   warnings: readonly CaptureWarning[];
   /** Upper bound for the file (characters); defaults to `OUTPUT_LIMITS.maxDesignMdChars`. */
@@ -40,6 +47,9 @@ interface Caps {
   states: number;
   /** Key elements listed per section after the protected first sections. */
   keyElements: number;
+  /** Entries listed per motion list, and motion frames listed. */
+  motionItems: number;
+  motionFrames: number;
   images: number;
   icons: number;
   fonts: number;
@@ -50,10 +60,10 @@ interface Caps {
 }
 
 const LEVELS: Caps[] = [
-  { colors: 40, gradients: 8, tagStyles: 14, sections: 24, components: 30, variants: 4, states: 6, keyElements: 10, images: 40, icons: 40, fonts: 12, keyframes: 20, variables: 24, warnings: 15, classChars: 700 },
-  { colors: 20, gradients: 5, tagStyles: 10, sections: 18, components: 16, variants: 2, states: 3, keyElements: 6, images: 20, icons: 20, fonts: 8, keyframes: 10, variables: 12, warnings: 10, classChars: 350 },
-  { colors: 12, gradients: 3, tagStyles: 6, sections: 12, components: 8, variants: 1, states: 2, keyElements: 4, images: 10, icons: 8, fonts: 5, keyframes: 5, variables: 6, warnings: 6, classChars: 200 },
-  { colors: 8, gradients: 2, tagStyles: 4, sections: 8, components: 4, variants: 0, states: 1, keyElements: 0, images: 5, icons: 4, fonts: 3, keyframes: 2, variables: 3, warnings: 4, classChars: 120 },
+  { colors: 40, gradients: 8, tagStyles: 14, sections: 24, components: 30, variants: 4, states: 6, keyElements: 10, motionItems: 20, motionFrames: 40, images: 40, icons: 40, fonts: 12, keyframes: 20, variables: 24, warnings: 15, classChars: 700 },
+  { colors: 20, gradients: 5, tagStyles: 10, sections: 18, components: 16, variants: 2, states: 3, keyElements: 6, motionItems: 12, motionFrames: 24, images: 20, icons: 20, fonts: 8, keyframes: 10, variables: 12, warnings: 10, classChars: 350 },
+  { colors: 12, gradients: 3, tagStyles: 6, sections: 12, components: 8, variants: 1, states: 2, keyElements: 4, motionItems: 8, motionFrames: 12, images: 10, icons: 8, fonts: 5, keyframes: 5, variables: 6, warnings: 6, classChars: 200 },
+  { colors: 8, gradients: 2, tagStyles: 4, sections: 8, components: 4, variants: 0, states: 1, keyElements: 0, motionItems: 4, motionFrames: 6, images: 5, icons: 4, fonts: 3, keyframes: 2, variables: 3, warnings: 4, classChars: 120 },
 ];
 
 const cell = (value: string | number | null | undefined): string => String(value ?? '').replace(/\|/g, '\\|').replace(/\s+/g, ' ');
@@ -82,6 +92,7 @@ function instructions(): string[] {
     '- **Replace brand logos and copyrighted images with placeholders** (neutral boxes or generated art) unless the user owns them. Icons in `assets/icons/` are inline SVGs and may be reused.',
     '- **Do not invent decorations, badges, pills, or font changes not shown in the screenshots or the data. Match each key element\'s font-size, color runs, and border-radius exactly.** Section 4 lists the measured values per section under "Key elements"; they win over anything you would guess.',
     '- Fonts: if a family is not a common system or Google font, use the closest free Google Font (for example Inter or Geist for sans-serif, JetBrains Mono for monospace) and keep the original name as the first fallback in the `font-family` stack.',
+    '- Apply the motion and interactions in section 8 (reveal presets, scroll-linked effects, carousels, loader) with the libraries it suggests, and compare with the frames in `assets/motion/`.',
     '- Make it responsive with the breakpoints in section 7, and implement the hover/focus/active states listed per component.',
     '',
   ];
@@ -369,23 +380,12 @@ function responsiveSection(input: DesignMdInput, caps: Caps): string[] {
   return [...lines, ''];
 }
 
-function motionSection(input: DesignMdInput, caps: Caps): string[] {
-  const { motion } = input.tokens;
-  const lines = ['## 8. Motion', ''];
-  lines.push(`- **Transition durations:** ${motion.durations.map((d) => `${d.ms}ms (${d.count})`).join(', ') || 'none'}`);
-  lines.push(`- **Easings:** ${motion.easings.map((e) => `${code(clip(e.value, 60))} (${e.count})`).join(', ') || 'none'}`);
-  lines.push('', '### Keyframes', '');
-  if (input.css.keyframes.length === 0) lines.push('None.');
-  for (const k of input.css.keyframes.slice(0, caps.keyframes)) lines.push(`- ${code(k.name)}: ${k.steps} steps, animates ${k.properties.join(', ') || 'n/a'}`);
-  lines.push(...more(Math.min(caps.keyframes, input.css.keyframes.length), input.css.keyframes.length, 'keyframes'), '');
-  return lines;
-}
-
 function render(input: DesignMdInput, caps: Caps): string {
   const title = input.capture.meta.title || input.capture.meta.url;
   return [
     `# Design pack: ${title}`,
     '',
+    ...buildChecklist(input.layout.sections.map((s) => ({ name: s.name, screenshot: input.screens.sections.find((x) => x.name === s.name)?.path ?? null }))),
     ...instructions(),
     ...overview(input, caps),
     ...tokenSection(input, caps),
@@ -393,7 +393,7 @@ function render(input: DesignMdInput, caps: Caps): string {
     ...componentSection(input, caps),
     ...assetsSection(input, caps),
     ...responsiveSection(input, caps),
-    ...motionSection(input, caps),
+    ...motionSection(input, { items: caps.motionItems, frames: caps.motionFrames, keyframes: caps.keyframes }),
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
