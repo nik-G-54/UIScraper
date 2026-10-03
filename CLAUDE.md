@@ -26,8 +26,9 @@ WXT + MV3 (Chrome), TypeScript (strict), React + Tailwind CSS v4 for the side pa
 
 - `entrypoints/background.ts` — minimal service worker
 - `entrypoints/extractor.ts` — unlisted script (bundled), injected on demand into the page
-- `entrypoints/sidepanel/` — React app (the orchestrator); `lib/capture.ts` runs a capture, `lib/download.ts` saves JSON
+- `entrypoints/sidepanel/` — React app (the orchestrator); `lib/capture.ts` runs a capture, `lib/css.ts` collects/downloads CSS, `lib/download.ts` saves files
 - `src/core/**` — pure analysis logic: `extract`, `css`, `tokens`, `components`, `assets`, `output`, `ai`
+- `src/core/css/` — `collect.ts` is page-side (bundled into the extractor, so it must not import css-tree); the rest is pure
 - `src/shared/` — `types.ts`, `config.ts` (budgets), `storage.ts`, `url.ts`, `errors.ts`, `usage.ts`
 
 Imports use the WXT alias `@/` (project root), e.g. `@/src/shared/types`.
@@ -101,12 +102,32 @@ Data semantics worth knowing before consuming a capture:
 
 Bump `SCHEMA_VERSION` in `src/shared/types.ts` whenever the result shape changes.
 
+## CSS and tokens (Phases 2-3)
+
+After a capture the panel runs `lib/css.ts` then `generateTokens` (progress steps: collecting CSS, parsing CSS,
+generating tokens). CSS collection never throws: any failure is a warning on `CssData.warnings`.
+
+- The extractor answers `designlens/collect-css` (`RawCssCollection`: `document.styleSheets`, `adoptedStyleSheets`,
+  open shadow roots). Readable sheets come back as text; cross-origin ones only as `href`, which the panel downloads
+  (size cap + timeout in `CSS_LIMITS`). `@import` is followed by the panel up to `maxImportDepth` (2), including in
+  readable sheets. `parseCss` (css-tree) resolves `url()` to absolute and wraps a sheet's `media` as its context.
+- `CssData`: custom properties on :root/html/body/:host and theme selectors (dark ones split into `darkMode.variables`),
+  breakpoints with frequency, state rules (state pseudo removed from `selector`), keyframes, font faces, framework hints
+  (from custom-property prefixes and banners, never class names). CSS nesting is not analyzed (warned).
+- `generateTokens(capture, css)` is pure (`src/core/tokens`): colours (culori, CIEDE2000 clustering, roles), typography,
+  spacing (4/8 base unit), radius, shadows, motion, breakpoints. Outputs: `DesignTokens` (tokens.json),
+  `generateThemeCss` (Tailwind v4 `@theme`), `generateTailwindV3Extend` (v3 `theme.extend` string).
+- Because the style table omits browser defaults, token code re-applies Chrome's UA defaults for font-size, weight and
+  text colour (`typography.ts`, `color.ts`); spacing ignores absent (default) margins/paddings. `outline-color` is not
+  in the style whitelist, so it is not a colour source.
+- Bump `TOKENS_SCHEMA_VERSION` when `DesignTokens` changes.
+
 ## Roadmap
 
 - 0 Setup
-- **1 Capture engine — current**
-- 2 CSS parser
-- 3 Design tokens
+- 1 Capture engine
+- **2 CSS parser — current**
+- **3 Design tokens — current**
 - 4 Layout + components
 - 5 Assets + screenshots + zip
 - 6 Rule-based design.md

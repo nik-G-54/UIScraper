@@ -76,8 +76,11 @@ export function getPageRestriction(url: string | undefined | null): PageRestrict
   return { restricted: false };
 }
 
-/** `designlens-<hostname>-<YYYYMMDD-HHmmss>.json`, safe for any filesystem. */
-export function buildCaptureFileName(url: string, now: Date = new Date()): string {
+/**
+ * `designlens-[<kind>-]<hostname>-<YYYYMMDD-HHmmss>.<ext>`, safe for any filesystem.
+ * With no `kind` and `ext` "json" this is the raw capture's file name.
+ */
+export function buildFileName(url: string, ext: string, kind?: string, now: Date = new Date()): string {
   let host = '';
   try {
     host = new URL(url).hostname;
@@ -94,5 +97,10 @@ export function buildCaptureFileName(url: string, now: Date = new Date()): strin
   const stamp =
     `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
     `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  return `designlens-${safeHost}-${stamp}.json`;
+  return `designlens-${kind ? `${kind}-` : ''}${safeHost}-${stamp}.${ext}`;
+}
+
+/** `designlens-<hostname>-<YYYYMMDD-HHmmss>.json`, safe for any filesystem. */
+export function buildCaptureFileName(url: string, now: Date = new Date()): string {
+  return buildFileName(url, 'json', undefined, now);
 }

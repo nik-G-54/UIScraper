@@ -2,10 +2,12 @@ import { SCHEMA_VERSION } from '../../shared/types';
 import type {
   CaptureOptions,
   CaptureResult,
+  CssLimits,
   ExtractorProgressMessage,
   ExtractorRequest,
   ExtractorResponse,
   ProgressStep,
+  RawCssCollection,
 } from '../../shared/types';
 import { isAbortError } from './abort';
 
@@ -15,6 +17,8 @@ export interface ExtractorDeps {
     onProgress: (step: ProgressStep) => void,
     signal: AbortSignal,
   ): Promise<CaptureResult>;
+  /** Read the page's stylesheets (synchronous: it only touches the DOM). */
+  collectCss(limits: CssLimits): RawCssCollection;
   sendProgress(message: ExtractorProgressMessage): void;
   /** `chrome.runtime.id`; messages from other extensions are ignored. */
   extensionId: string | undefined;
@@ -37,6 +41,8 @@ export function isExtractorRequest(message: unknown): message is ExtractorReques
       return true;
     case 'designlens/abort':
       return typeof message.requestId === 'string';
+    case 'designlens/collect-css':
+      return isObject(message.limits);
     case 'designlens/extract':
       return (
         typeof message.requestId === 'string' &&
@@ -73,6 +79,20 @@ export function createExtractorListener(deps: ExtractorDeps): ExtractorListener 
     switch (message.type) {
       case 'designlens/ping':
         respond({ ok: true, kind: 'pong', schemaVersion: SCHEMA_VERSION });
+        return false;
+
+      case 'designlens/collect-css':
+        try {
+          respond({ ok: true, kind: 'css', css: deps.collectCss(message.limits) });
+        } catch (error) {
+          respond({
+            ok: false,
+            error: {
+              code: 'EXTRACTION_FAILED',
+              message: error instanceof Error && error.message ? error.message : 'Could not read the stylesheets.',
+            },
+          });
+        }
         return false;
 
       case 'designlens/abort':

@@ -1,18 +1,29 @@
 import { useState } from 'react';
 import { toErrorMessage } from '@/src/shared/errors';
 import { loadSettings } from '@/src/shared/storage';
-import type { ActiveTabInfo, CaptureResult, ProgressStep } from '@/src/shared/types';
+import { generateTokens } from '@/src/core/tokens';
+import type { ActiveTabInfo, AnalysisStep, CaptureResult, CssData, DesignTokens } from '@/src/shared/types';
 import { getPageRestriction } from '@/src/shared/url';
 import type { ActiveTabState } from '../hooks/useActiveTab';
 import { captureTab } from '../lib/capture';
+import { collectCssData } from '../lib/css';
 import { CaptureResultView } from './CaptureResultView';
 import { ProgressSteps } from './ProgressSteps';
+import { TokensView } from './TokensView';
 import { Card, ErrorBanner, Notice, Spinner } from './ui';
 
 type AnalysisState =
   | { status: 'idle' }
-  | { status: 'loading'; tabId: number; step: ProgressStep; autoScroll: boolean }
-  | { status: 'success'; tabId: number; url: string; result: CaptureResult }
+  | { status: 'loading'; tabId: number; step: AnalysisStep; autoScroll: boolean }
+  | {
+      status: 'success';
+      tabId: number;
+      url: string;
+      result: CaptureResult;
+      css: CssData;
+      tokens: DesignTokens | null;
+      tokensError: string | null;
+    }
   | { status: 'error'; tabId: number; url: string; message: string };
 
 /** The URL the tab has right now (after a mid-capture navigation it differs from the start URL). */
@@ -64,12 +75,25 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
       });
       return;
     }
+    const setStep = (step: AnalysisStep) =>
+      setAnalysis((previous) => (previous.status === 'loading' ? { ...previous, step } : previous));
     setAnalysis({ status: 'loading', tabId: target.id, step: 'preparing', autoScroll });
     try {
-      const result = await captureTab(target, { autoScroll }, (step) =>
-        setAnalysis((previous) => (previous.status === 'loading' ? { ...previous, step } : previous)),
-      );
-      setAnalysis({ status: 'success', tabId: target.id, url: target.url, result });
+      // The capture's own "done" is not the end any more: CSS and tokens follow.
+      const result = await captureTab(target, { autoScroll }, (step) => {
+        if (step !== 'done') setStep(step);
+      });
+      const css = await collectCssData(target, setStep);
+      setStep('generating-tokens');
+      await new Promise((resolve) => setTimeout(resolve, 0)); // let the step render before the synchronous work
+      let tokens: DesignTokens | null = null;
+      let tokensError: string | null = null;
+      try {
+        tokens = generateTokens(result, css);
+      } catch (error) {
+        tokensError = toErrorMessage(error);
+      }
+      setAnalysis({ status: 'success', tabId: target.id, url: target.url, result, css, tokens, tokensError });
     } catch (error) {
       setAnalysis({
         status: 'error',
@@ -112,7 +136,13 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
         </Card>
       )}
       {shown?.status === 'error' && <ErrorBanner title="Analysis failed" message={shown.message} />}
-      {shown?.status === 'success' && <CaptureResultView key={shown.result.meta.timestamp} result={shown.result} />}
+      {shown?.status === 'success' && (
+        <>
+          {shown.tokensError && <ErrorBanner title="Token generation failed" message={shown.tokensError} />}
+          {shown.tokens && <TokensView key={shown.tokens.source.capturedAt} tokens={shown.tokens} css={shown.css} />}
+          <CaptureResultView key={shown.result.meta.timestamp} result={shown.result} />
+        </>
+      )}
     </div>
   );
 }

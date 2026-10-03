@@ -269,6 +269,7 @@ export type ProgressStep = 'preparing' | 'scrolling' | 'stabilizing' | 'capturin
 export type ExtractorRequest =
   | { type: 'designlens/ping' }
   | { type: 'designlens/extract'; requestId: string; options: CaptureOptions }
+  | { type: 'designlens/collect-css'; limits: CssLimits }
   | { type: 'designlens/abort'; requestId: string };
 
 export type ExtractorErrorCode = 'ABORTED' | 'BUSY' | 'EXTRACTION_FAILED';
@@ -276,6 +277,7 @@ export type ExtractorErrorCode = 'ABORTED' | 'BUSY' | 'EXTRACTION_FAILED';
 export type ExtractorResponse =
   | { ok: true; kind: 'pong'; schemaVersion: number }
   | { ok: true; kind: 'result'; result: CaptureResult }
+  | { ok: true; kind: 'css'; css: RawCssCollection }
   | { ok: true; kind: 'abort-ack' }
   | { ok: false; error: { code: ExtractorErrorCode; message: string } };
 
@@ -284,4 +286,284 @@ export interface ExtractorProgressMessage {
   type: 'designlens/progress';
   requestId: string;
   step: ProgressStep;
+}
+
+/** Everything the side panel shows while analyzing: the capture steps, then CSS and tokens. */
+export type AnalysisStep =
+  | Exclude<ProgressStep, 'done'>
+  | 'collecting-css'
+  | 'parsing-css'
+  | 'generating-tokens'
+  | 'done';
+
+// ---------------------------------------------------------------------------
+// CSS collection (Phase 2)
+// ---------------------------------------------------------------------------
+
+/** Limits for collecting, fetching and parsing CSS (values live in src/shared/config.ts). */
+export interface CssLimits {
+  /** Stylesheets read from the page; the rest are skipped with a warning. */
+  maxSheets: number;
+  /** Longest CSS text kept per stylesheet (characters). */
+  maxSheetChars: number;
+  /** Largest cross-origin / @import file the side panel downloads (bytes). */
+  maxFetchBytes: number;
+  fetchTimeoutMs: number;
+  /** How deep @import chains are followed (top-level sheets are depth 0). */
+  maxImportDepth: number;
+  /** Cap on recorded state (:hover etc.) rules. */
+  maxStateRules: number;
+  /** Cap on recorded custom properties. */
+  maxVariables: number;
+  maxKeyframes: number;
+  maxFontFaces: number;
+}
+
+export type RawStylesheetKind = 'link' | 'style' | 'adopted';
+
+/** One stylesheet as seen by the extractor. `cssText` is null when it could not be read. */
+export interface RawStylesheet {
+  kind: RawStylesheetKind;
+  /** Absolute URL for <link> sheets, else null. */
+  href: string | null;
+  /** What relative url() / @import values in `cssText` resolve against. */
+  baseUrl: string;
+  /** `media` of the <link>/<style>, or null when it applies everywhere. */
+  media: string | null;
+  inShadow: boolean;
+  cssText: string | null;
+  /** Why `cssText` is null (e.g. cross-origin: fetch `href` instead). */
+  error?: string;
+  /** `cssText` was cut at `CssLimits.maxSheetChars`. */
+  truncated?: boolean;
+}
+
+/** Reply to `designlens/collect-css`. */
+export interface RawCssCollection {
+  schemaVersion: typeof SCHEMA_VERSION;
+  documentUrl: string;
+  sheets: RawStylesheet[];
+  warnings: CaptureWarning[];
+}
+
+export type CssTheme = 'default' | 'light' | 'dark' | 'other';
+
+export interface CssVariable {
+  /** Including the leading `--`. */
+  name: string;
+  value: string;
+  /** The selector that declared it, e.g. `:root`, `.dark`. */
+  selector: string;
+  theme: CssTheme;
+  /** Enclosing @media condition, or null. */
+  media: string | null;
+}
+
+export interface CssBreakpoint {
+  feature: 'min-width' | 'max-width';
+  /** As written, e.g. `48rem`. */
+  value: string;
+  /** Pixels (em/rem = 16px); null for other units. */
+  px: number | null;
+  count: number;
+}
+
+export const CSS_STATES = ['hover', 'focus', 'focus-visible', 'active', 'disabled'] as const;
+export type CssState = (typeof CSS_STATES)[number];
+
+export interface CssStateRule {
+  /** The selector with every state pseudo-class removed. */
+  selector: string;
+  /** The first state pseudo-class the selector contained. */
+  state: CssState;
+  declarations: Record<string, string>;
+  media: string | null;
+}
+
+export interface CssKeyframes {
+  name: string;
+  /** Number of keyframe blocks (`0%`, `50%`...). */
+  steps: number;
+  /** Animated properties, sorted. */
+  properties: string[];
+}
+
+export interface CssFontFaceSource {
+  url: string;
+  format: string | null;
+}
+
+export interface CssFontFace {
+  family: string;
+  weight: string;
+  style: string;
+  display: string | null;
+  sources: CssFontFaceSource[];
+}
+
+export interface CssDarkMode {
+  detected: boolean;
+  /** A `prefers-color-scheme: dark` media query exists. */
+  viaMediaQuery: boolean;
+  /** Dark-theme selectors seen (`.dark`, `[data-theme="dark"]`...), capped. */
+  selectors: string[];
+  /** Rules found inside dark contexts. */
+  ruleCount: number;
+  /** Custom properties the dark contexts override. */
+  variables: CssVariable[];
+}
+
+export interface FrameworkHint {
+  name: string;
+  version?: string;
+  evidence: string;
+}
+
+export interface CssStats {
+  sheets: number;
+  fetchedSheets: number;
+  unreadableSheets: number;
+  rules: number;
+  bytes: number;
+}
+
+/** Everything learned from the page's CSS text (output of `parseCss`). */
+export interface CssData {
+  /** Custom properties on :root / html / body / theme selectors, excluding dark overrides. */
+  variables: CssVariable[];
+  breakpoints: CssBreakpoint[];
+  stateRules: CssStateRule[];
+  keyframes: CssKeyframes[];
+  fontFaces: CssFontFace[];
+  darkMode: CssDarkMode;
+  frameworks: FrameworkHint[];
+  stats: CssStats;
+  warnings: CaptureWarning[];
+}
+
+// ---------------------------------------------------------------------------
+// Design tokens (Phase 3)
+// ---------------------------------------------------------------------------
+
+/** Bump when the shape of `DesignTokens` changes. */
+export const TOKENS_SCHEMA_VERSION = 1;
+
+export const COLOR_ROLES = [
+  'background',
+  'surface',
+  'text-primary',
+  'text-muted',
+  'primary',
+  'accent',
+  'border',
+] as const;
+export type ColorRole = (typeof COLOR_ROLES)[number];
+
+export type ColorUse = 'text' | 'background' | 'border' | 'shadow';
+
+export interface ColorToken {
+  /** `#rrggbb`, or `#rrggbbaa` when translucent. */
+  hex: string;
+  role: ColorRole | null;
+  /** Custom property (with `--`) whose value equals this colour, if any. */
+  variable: string | null;
+  /** Node-uses of this colour (all kinds summed). */
+  count: number;
+  /** Summed node area in px². */
+  area: number;
+  uses: Record<ColorUse, number>;
+  /** Raw colours folded into this one (1 = none). */
+  merged: number;
+}
+
+export type FontCategory = 'sans' | 'serif' | 'mono' | 'display';
+
+export interface FontFamilyToken {
+  /** First non-generic family, unquoted. */
+  name: string;
+  /** Cleaned stack, e.g. `Inter, system-ui, sans-serif`. */
+  stack: string;
+  category: FontCategory;
+  count: number;
+  role: 'body' | 'heading' | 'mono' | null;
+}
+
+export interface ScaleValue {
+  /** Pixels. */
+  px: number;
+  count: number;
+}
+
+export interface ValueCount {
+  value: string;
+  count: number;
+}
+
+export interface TagTypography {
+  tag: string;
+  fontFamily: string;
+  fontSizePx: number;
+  fontWeight: string;
+  /** Ratio to font size (`1.5`), or `normal`. */
+  lineHeight: string;
+  letterSpacing: string;
+  textTransform: string | null;
+  color: string | null;
+  count: number;
+}
+
+export interface TypographyTokens {
+  families: FontFamilyToken[];
+  /** Ascending by size. */
+  sizes: ScaleValue[];
+  weights: ValueCount[];
+  lineHeights: ValueCount[];
+  letterSpacings: ValueCount[];
+  tags: TagTypography[];
+}
+
+export interface SpacingTokens {
+  baseUnit: 4 | 8 | null;
+  /** Share (0..1) of spacing usages that are multiples of `baseUnit` (or of 4 when there is none). */
+  coverage: number;
+  /** Ascending by size. */
+  scale: ScaleValue[];
+}
+
+export interface RadiusToken {
+  /** e.g. `8px`, `50%`, `9999px`. */
+  value: string;
+  px: number | null;
+  count: number;
+}
+
+export interface ShadowToken {
+  value: string;
+  count: number;
+}
+
+export interface MotionTokens {
+  durations: { ms: number; count: number }[];
+  easings: ValueCount[];
+}
+
+export interface BreakpointToken {
+  px: number;
+  count: number;
+}
+
+export interface DesignTokens {
+  schemaVersion: typeof TOKENS_SCHEMA_VERSION;
+  source: { url: string; title: string; capturedAt: string };
+  /** Most important first. */
+  colors: ColorToken[];
+  typography: TypographyTokens;
+  spacing: SpacingTokens;
+  radius: RadiusToken[];
+  shadows: ShadowToken[];
+  motion: MotionTokens;
+  breakpoints: BreakpointToken[];
+  frameworks: FrameworkHint[];
+  cssVariables: { default: Record<string, string>; dark: Record<string, string> };
+  darkMode: boolean;
 }

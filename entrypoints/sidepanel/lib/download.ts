@@ -1,6 +1,6 @@
 import { DesignLensError, toErrorMessage } from '@/src/shared/errors';
-import type { CaptureResult } from '@/src/shared/types';
-import { buildCaptureFileName } from '@/src/shared/url';
+import type { CaptureResult, DesignTokens } from '@/src/shared/types';
+import { buildCaptureFileName, buildFileName } from '@/src/shared/url';
 
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
@@ -35,12 +35,11 @@ function waitForDownload(id: number): Promise<void> {
 }
 
 /**
- * Save the raw capture as compact JSON. The Blob and object URL live in this side panel page;
- * chrome.downloads fetches them. Resolves with the file name.
+ * Save text as a file. The Blob and object URL live in this side panel page; chrome.downloads
+ * fetches them. Resolves with the file name.
  */
-export async function downloadCaptureJson(result: CaptureResult): Promise<string> {
-  const filename = buildCaptureFileName(result.meta.url);
-  const url = URL.createObjectURL(new Blob([JSON.stringify(result)], { type: 'application/json' }));
+async function downloadText(content: string, filename: string, mime: string): Promise<string> {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
   try {
     const id = await chrome.downloads.download({ url, filename, saveAs: false, conflictAction: 'uniquify' });
     await waitForDownload(id);
@@ -50,4 +49,20 @@ export async function downloadCaptureJson(result: CaptureResult): Promise<string
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** Save the raw capture as compact JSON. */
+export function downloadCaptureJson(result: CaptureResult): Promise<string> {
+  return downloadText(JSON.stringify(result), buildCaptureFileName(result.meta.url), 'application/json');
+}
+
+/** Save tokens.json (pretty-printed: it is meant to be read). */
+export function downloadTokensJson(tokens: DesignTokens): Promise<string> {
+  const json = `${JSON.stringify(tokens, null, 2)}\n`;
+  return downloadText(json, buildFileName(tokens.source.url, 'json', 'tokens'), 'application/json');
+}
+
+/** Save theme.css (the Tailwind v4 @theme block). */
+export function downloadThemeCss(css: string, sourceUrl: string): Promise<string> {
+  return downloadText(css, buildFileName(sourceUrl, 'css', 'theme'), 'text/css');
 }

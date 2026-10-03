@@ -1,3 +1,4 @@
+import { collectStylesheets } from '@/src/core/css/collect';
 import { createBrowserEnv, createExtractorListener, installListener, runCapture } from '@/src/core/extract';
 
 /**
@@ -9,6 +10,7 @@ export default defineUnlistedScript(() => {
   const listener = createExtractorListener({
     extensionId: chrome.runtime.id,
     run: (options, onProgress, signal) => runCapture(createBrowserEnv(window), options, onProgress, signal),
+    collectCss: (limits) => collectStylesheets(document, limits),
     sendProgress: (message) => {
       // Fire and forget: if the side panel is closed there is nobody to receive it.
       chrome.runtime.sendMessage(message).catch(() => undefined);

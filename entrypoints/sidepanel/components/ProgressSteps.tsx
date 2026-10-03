@@ -1,18 +1,21 @@
-import type { ProgressStep } from '@/src/shared/types';
+import type { AnalysisStep } from '@/src/shared/types';
 
-const STEPS: { id: ProgressStep; label: string }[] = [
+const STEPS: { id: AnalysisStep; label: string }[] = [
   { id: 'preparing', label: 'Preparing' },
   { id: 'scrolling', label: 'Scrolling' },
   { id: 'stabilizing', label: 'Stabilizing' },
   { id: 'capturing', label: 'Capturing' },
   { id: 'cleaning-up', label: 'Cleaning up' },
+  { id: 'collecting-css', label: 'Collecting CSS' },
+  { id: 'parsing-css', label: 'Parsing CSS' },
+  { id: 'generating-tokens', label: 'Generating tokens' },
   { id: 'done', label: 'Done' },
 ];
 
-export function ProgressSteps({ step, autoScroll }: { step: ProgressStep; autoScroll: boolean }) {
+export function ProgressSteps({ step, autoScroll }: { step: AnalysisStep; autoScroll: boolean }) {
   const currentIndex = STEPS.findIndex((s) => s.id === step);
   return (
-    <ol className="flex flex-col gap-1.5" aria-label="Capture progress">
+    <ol className="flex flex-col gap-1.5" aria-label="Analysis progress">
       {STEPS.map((s, index) => {
         const skipped = s.id === 'scrolling' && !autoScroll;
         const state = skipped ? 'skipped' : index < currentIndex || step === 'done' ? 'done' : index === currentIndex ? 'active' : 'pending';
