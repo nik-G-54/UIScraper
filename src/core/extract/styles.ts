@@ -35,6 +35,10 @@ export function pruneInvisibleDetails(style: StyleRecord, defaults: StyleRecord)
     delete style['text-decoration-color'];
     delete style['text-decoration-style'];
   }
+  // The fill colour follows `color` unless the page changes it (gradient text uses `transparent`),
+  // so a copy of `color` is noise. Absent therefore means "same as color".
+  const fill = style['-webkit-text-fill-color'];
+  if (fill !== undefined && fill === effective('color')) delete style['-webkit-text-fill-color'];
   return style;
 }
 

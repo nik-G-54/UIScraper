@@ -36,7 +36,8 @@ export function buildRadius(capture: CaptureResult): RadiusToken[] {
   const tally = new Tally<string>();
   const sample = new Map<string, RadiusToken>();
   for (const node of capture.nodes) {
-    if (node.styleId === null) continue;
+    // A radius on a zero-size box paints nothing, so it is not part of the scale.
+    if (node.styleId === null || node.rect.width <= 0 || node.rect.height <= 0) continue;
     const style = capture.styleTable[node.styleId];
     if (!style) continue;
     const seen = new Set<string>();

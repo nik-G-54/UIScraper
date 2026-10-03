@@ -155,6 +155,16 @@ capture stops the run; every later failure is a warning and the zip is still pro
   named `designlens-<host>-<timestamp>.zip`.
 - Bump `SCHEMA_VERSION` (now 4) / `TOKENS_SCHEMA_VERSION` (now 2) when those shapes change.
 
+## Design fidelity (key elements)
+
+- `analyzeLayout` fills `PageSection.keyElements` (`components/keyElements.ts`: headings, buttons, logos/images, paragraphs, badges by
+  priority, capped by `KEY_ELEMENTS.maxPerSection`, output in reading order) and `geometry` (`components/geometry.ts`: container content
+  box, ink extent, decorative 1-2px lines). Inline runs come from an element's own text first, then its text-bearing descendants.
+- `radius.ts`: exact radius per element; "pill" only when the radius is >= half the element height. Components carry `radius`/`pill`.
+- `-webkit-text-fill-color` is captured but pruned when equal to `color` (absent = same as `color`); `mix-blend-mode` is whitelisted.
+- design.md keeps the key elements of the first `KEY_ELEMENTS.protectedSections` sections at every size level; later sections shrink first.
+- Emulated viewport height is at least `SCREENSHOT.minEmulatedHeightPx` (900).
+
 ## Roadmap
 
 - 0 Setup

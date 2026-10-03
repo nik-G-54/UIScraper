@@ -39,6 +39,27 @@ describe('styleToTailwind', () => {
   });
 });
 
+describe('positioned offsets', () => {
+  const zero = { top: '0px', right: '0px', bottom: '0px', left: '0px' };
+
+  it('drops zero/auto offsets on static and relative boxes, keeps them where they move something', () => {
+    expect(tw({ position: 'relative', ...zero })).toEqual(['relative']);
+    expect(tw({ position: 'static', ...zero })).toEqual([]);
+    expect(tw({ position: 'relative', top: 'auto', left: '0px' })).toEqual(['relative']);
+    expect(tw({ position: 'relative', top: '8px', left: '0px' })).toEqual(['relative', 'top-2']);
+    expect(tw({ position: 'absolute', ...zero })).toEqual(['absolute', 'inset-0']);
+    expect(tw({ position: 'absolute', top: '0px', left: 'auto' })).toEqual(['absolute', 'top-0']);
+  });
+
+  it('maps blend and clipped-text styles', () => {
+    expect(tw({ 'mix-blend-mode': 'multiply', 'background-clip': 'text', '-webkit-text-fill-color': 'rgba(0, 0, 0, 0)', color: 'rgb(255, 0, 0)' })).toEqual([
+      'text-transparent',
+      'bg-clip-text',
+      'mix-blend-multiply',
+    ]);
+  });
+});
+
 describe('declarationsToTailwind', () => {
   it('prefixes state declarations, including shorthands and transforms', () => {
     expect(declarationsToTailwind({ background: '#000', transform: 'translateY(-2px)' }, 'hover:')).toEqual([

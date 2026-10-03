@@ -174,11 +174,15 @@ function layoutClasses(s: StyleRecord, ctx: TailwindContext): string[] {
   if (display !== undefined && DISPLAY[display]) out.push(DISPLAY[display] as string);
   if (s.position && s.position !== 'static') out.push(s.position);
   if (s.position && s.position !== 'static') {
+    // Offsets only move a positioned box. On a relative box a 0px/auto offset changes nothing, and
+    // static boxes ignore offsets altogether (handled by the guard above).
+    const relative = s.position === 'relative';
     const { top, right, bottom, left } = s;
-    if (top === '0px' && right === '0px' && bottom === '0px' && left === '0px') out.push('inset-0');
+    if (!relative && top === '0px' && right === '0px' && bottom === '0px' && left === '0px') out.push('inset-0');
     else {
       for (const [prefix, value] of [['top', top], ['right', right], ['bottom', bottom], ['left', left]] as const) {
-        const cls = value && value !== 'auto' ? spacingClass(prefix, value, ctx) : null;
+        if (!value || value === 'auto' || (relative && parsePx(value) === 0)) continue;
+        const cls = spacingClass(prefix, value, ctx);
         if (cls) out.push(cls);
       }
     }
@@ -283,8 +287,12 @@ function typographyClasses(s: StyleRecord, ctx: TailwindContext, opts: TailwindO
   else if (space === 'pre' || space === 'pre-wrap' || space === 'pre-line') out.push(`whitespace-${space}`);
   if (s['text-overflow'] === 'ellipsis') out.push('text-ellipsis');
   if (s['list-style-type'] === 'none') out.push('list-none');
-  const color = colorClass('text', s.color, ctx);
-  if (color) out.push(color);
+  const fill = s['-webkit-text-fill-color'];
+  if (fill !== undefined && normalizeColor(fill) === null) out.push('text-transparent');
+  else {
+    const color = colorClass('text', fill ?? s.color, ctx);
+    if (color) out.push(color);
+  }
   return out;
 }
 
@@ -364,6 +372,9 @@ function effectClasses(s: StyleRecord, ctx: TailwindContext): string[] {
     const named = ctx.shadows.get(key);
     out.push(named ? `shadow-${named}` : `shadow-[${underscored(key)}]`);
   }
+  if (s['background-clip'] === 'text') out.push('bg-clip-text');
+  const blend = s['mix-blend-mode'];
+  if (blend && blend !== 'normal') out.push(`mix-blend-${blend}`);
   const opacity = s.opacity;
   if (opacity !== undefined && opacity !== '1') {
     const pct = Math.round(Number(opacity) * 100);

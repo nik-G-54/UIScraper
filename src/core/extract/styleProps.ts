@@ -75,6 +75,7 @@ export const STYLE_PROPERTIES = [
   'white-space',
   'word-break',
   'vertical-align',
+  '-webkit-text-fill-color',
   // color
   'color',
   // background
@@ -107,6 +108,7 @@ export const STYLE_PROPERTIES = [
   'text-shadow',
   // effects
   'opacity',
+  'mix-blend-mode',
   'filter',
   'backdrop-filter',
   'transform',

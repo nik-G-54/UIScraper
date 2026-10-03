@@ -7,7 +7,7 @@ import { diffStyles, pruneInvisibleDetails, readAllStyles, StyleTable } from './
 describe('STYLE_PROPERTIES whitelist', () => {
   it('has no duplicates and only lowercase longhand-style names', () => {
     expect(new Set(STYLE_PROPERTIES).size).toBe(STYLE_PROPERTIES.length);
-    for (const property of STYLE_PROPERTIES) expect(property).toMatch(/^[a-z]+(-[a-z]+)*$/);
+    for (const property of STYLE_PROPERTIES) expect(property).toMatch(/^-?[a-z]+(-[a-z]+)*$/);
   });
 
   it('covers every design-relevant group', () => {

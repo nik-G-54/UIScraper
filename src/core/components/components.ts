@@ -8,6 +8,7 @@ import type {
   StyleRecord,
 } from '../../shared/types';
 import { nodeClasses, solidBackground } from './nodeClasses';
+import { radiusInfo } from './radius';
 import { sectionOfNode } from './sections';
 import { computeStructureHashes } from './structure';
 import { styleToTailwind } from './tailwind';
@@ -234,6 +235,7 @@ export function detectComponents(tree: Tree, sections: readonly PageSection[], c
       structure: outline(tree, rep),
       text: INTERACTIVE.has(rep.tag) || draft.kind === 'badge' || draft.kind === 'nav-item' ? textOf(tree, rep) : null,
       tailwind: nodeClasses(tree, rep, ctx).join(' '),
+      ...(({ value, pill }) => ({ radius: value, pill }))(radiusInfo(tree.style(rep), rep.rect)),
       variants: draft.variants,
       states: [],
       section,

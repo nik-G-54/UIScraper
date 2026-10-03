@@ -133,6 +133,8 @@ export const SCREENSHOT = {
   maxCropHeightPx: 4_000,
   maxSectionShots: 24,
   jpegQuality: 85,
+  /** The emulated viewport is at least this tall (CSS px) so tall hero sections are not cut. */
+  minEmulatedHeightPx: 900,
   /** Wait for layout after the viewport override changes (ms). */
   emulationSettleMs: 400,
   emulationTimeoutMs: 4_000,
@@ -157,6 +159,25 @@ export const LAYOUT_TUNING = {
   /** Members whose area differs from the group median by more than this factor are not the same component. */
   areaRatio: 4,
   maxStateDeclarations: 12,
+};
+
+/** Per-section key elements and geometry (design.md fidelity). */
+export const KEY_ELEMENTS = {
+  /** Key elements kept per section (the generator may list fewer in later sections to fit the size cap). */
+  maxPerSection: 10,
+  /** Sections at the top of the page whose key elements are never dropped to save space. */
+  protectedSections: 3,
+  /** Text at or above this size counts as a heading even when it is not an h1-h3 (px). */
+  largeTextPx: 28,
+  /** A text block shorter than this is not listed as a paragraph (characters). */
+  minParagraphChars: 24,
+  maxTextChars: 100,
+  maxRuns: 8,
+  /** Decorative lines: border-only boxes must be at least this long (px). */
+  minLinePx: 24,
+  /** Thin boxes count as lines when they span this share of the section. */
+  lineSpanRatio: 0.6,
+  maxLinesPerSection: 12,
 };
 
 /** Size caps for the generated pack. */

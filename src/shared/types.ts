@@ -634,6 +634,80 @@ export interface LayoutSummary {
   paddingY: string | null;
 }
 
+/** One run of inline text with its own look (a span with another colour or weight). */
+export interface TextRun {
+  text: string;
+  /** Normalized hex; null when the text is painted by a gradient/clip (see `gradientText`). */
+  color: string | null;
+  colorToken: string | null;
+  fontWeight: string;
+  /** Only set when it differs from the first run. */
+  fontSizePx: number | null;
+  gradientText: boolean;
+}
+
+export const KEY_ELEMENT_ROLES = ['heading', 'paragraph', 'button', 'badge', 'image', 'logo'] as const;
+export type KeyElementRole = (typeof KEY_ELEMENT_ROLES)[number];
+
+export interface ColorRef {
+  hex: string;
+  /** Name in theme.css, or null when no token is close enough. */
+  token: string | null;
+}
+
+/** A visible element worth reproducing exactly: its measured look, not a guess. */
+export interface KeyElement {
+  nodeId: number;
+  role: KeyElementRole;
+  tag: string;
+  /** Trimmed text (all runs joined), or the alt text of an image. */
+  text: string | null;
+  rect: Rect;
+  fontFamily: string | null;
+  fontSizePx: number | null;
+  lineHeight: string | null;
+  fontWeight: string | null;
+  letterSpacing: string | null;
+  color: ColorRef | null;
+  background: ColorRef | null;
+  /** e.g. `1px solid #e5edf5`. */
+  border: string | null;
+  /** Exact computed border-radius (`8px`, `50%`, `8px 8px 0px 0px`), null when square. */
+  radius: string | null;
+  /** True only when the radius is at least half the element's height. */
+  pill: boolean;
+  /** CSS shorthand, null when none. */
+  padding: string | null;
+  tailwind: string;
+  /** In order; only present when the text has 2+ runs that look different. */
+  runs: TextRun[];
+  /** Gradient/canvas/image behind the text, blend modes, clipped-text effects. */
+  notes: string[];
+  /** Image URL (the `src` attribute), when the element is an `<img>`. */
+  src: string | null;
+}
+
+export interface DecorativeLine {
+  orientation: 'vertical' | 'horizontal';
+  /** x for vertical lines, y for horizontal ones (document px). */
+  at: number;
+  thicknessPx: number;
+  color: string | null;
+  /** Length along its axis (px). */
+  length: number;
+}
+
+export interface SectionGeometry {
+  /** Content box (padding removed) of the main container, document px. */
+  contentLeft: number;
+  contentWidth: number;
+  maxWidth: number | null;
+  /** Left and right edge of the visible text and images (document px); null for an empty section. */
+  inkLeft: number | null;
+  inkRight: number | null;
+  lines: DecorativeLine[];
+}
+
 export interface PageSection {
   index: number;
   nodeId: number;
@@ -651,6 +725,9 @@ export interface PageSection {
   headings: string[];
   /** Tailwind classes of the section element itself. */
   tailwind: string;
+  /** Most important visible elements, in reading order. */
+  keyElements: KeyElement[];
+  geometry: SectionGeometry;
 }
 
 export const COMPONENT_KINDS = ['button', 'link', 'nav-item', 'input', 'badge', 'card', 'list-item', 'generic'] as const;
@@ -685,6 +762,10 @@ export interface ComponentGroup {
   structure: string;
   text: string | null;
   tailwind: string;
+  /** Exact border-radius of the representative member, null when square. */
+  radius: string | null;
+  /** True only when that radius is at least half the element's height. */
+  pill: boolean;
   variants: ComponentVariant[];
   states: ComponentState[];
   /** Section where most members live. */

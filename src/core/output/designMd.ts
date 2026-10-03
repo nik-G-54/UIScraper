@@ -1,4 +1,4 @@
-import { OUTPUT_LIMITS } from '../../shared/config';
+import { KEY_ELEMENTS, OUTPUT_LIMITS } from '../../shared/config';
 import { shortUrl } from '../assets/files';
 import type {
   AssetIndex,
@@ -6,7 +6,9 @@ import type {
   CaptureWarning,
   ComponentGroup,
   CssData,
+  DecorativeLine,
   DesignTokens,
+  KeyElement,
   LayoutAnalysis,
   PageSection,
   ScreenshotIndex,
@@ -36,6 +38,8 @@ interface Caps {
   components: number;
   variants: number;
   states: number;
+  /** Key elements listed per section after the protected first sections. */
+  keyElements: number;
   images: number;
   icons: number;
   fonts: number;
@@ -46,9 +50,10 @@ interface Caps {
 }
 
 const LEVELS: Caps[] = [
-  { colors: 40, gradients: 8, tagStyles: 14, sections: 24, components: 30, variants: 4, states: 6, images: 40, icons: 40, fonts: 12, keyframes: 20, variables: 24, warnings: 15, classChars: 700 },
-  { colors: 20, gradients: 5, tagStyles: 10, sections: 18, components: 16, variants: 2, states: 3, images: 20, icons: 20, fonts: 8, keyframes: 10, variables: 12, warnings: 10, classChars: 350 },
-  { colors: 12, gradients: 3, tagStyles: 6, sections: 12, components: 8, variants: 1, states: 2, images: 10, icons: 8, fonts: 5, keyframes: 5, variables: 6, warnings: 6, classChars: 200 },
+  { colors: 40, gradients: 8, tagStyles: 14, sections: 24, components: 30, variants: 4, states: 6, keyElements: 10, images: 40, icons: 40, fonts: 12, keyframes: 20, variables: 24, warnings: 15, classChars: 700 },
+  { colors: 20, gradients: 5, tagStyles: 10, sections: 18, components: 16, variants: 2, states: 3, keyElements: 6, images: 20, icons: 20, fonts: 8, keyframes: 10, variables: 12, warnings: 10, classChars: 350 },
+  { colors: 12, gradients: 3, tagStyles: 6, sections: 12, components: 8, variants: 1, states: 2, keyElements: 4, images: 10, icons: 8, fonts: 5, keyframes: 5, variables: 6, warnings: 6, classChars: 200 },
+  { colors: 8, gradients: 2, tagStyles: 4, sections: 8, components: 4, variants: 0, states: 1, keyElements: 0, images: 5, icons: 4, fonts: 3, keyframes: 2, variables: 3, warnings: 4, classChars: 120 },
 ];
 
 const cell = (value: string | number | null | undefined): string => String(value ?? '').replace(/\|/g, '\\|').replace(/\s+/g, ' ');
@@ -75,6 +80,8 @@ function instructions(): string[] {
     '- Use the screenshots in `assets/screens/` (one per section, plus `full-page.jpg`) as the visual reference for spacing, alignment and proportions.',
     '- Class lists only include properties that differ from the browser default, and Tailwind preflight resets margins and heading sizes: when the screenshot shows spacing the classes do not, add it.',
     '- **Replace brand logos and copyrighted images with placeholders** (neutral boxes or generated art) unless the user owns them. Icons in `assets/icons/` are inline SVGs and may be reused.',
+    '- **Do not invent decorations, badges, pills, or font changes not shown in the screenshots or the data. Match each key element\'s font-size, color runs, and border-radius exactly.** Section 4 lists the measured values per section under "Key elements"; they win over anything you would guess.',
+    '- Fonts: if a family is not a common system or Google font, use the closest free Google Font (for example Inter or Geist for sans-serif, JetBrains Mono for monospace) and keep the original name as the first fallback in the `font-family` stack.',
     '- Make it responsive with the breakpoints in section 7, and implement the hover/focus/active states listed per component.',
     '',
   ];
@@ -156,7 +163,7 @@ function tokenSection(input: DesignMdInput, caps: Caps): string[] {
     '### Spacing, radius, shadows',
     '',
     `- **Spacing:** ${sp.baseUnit ? `${sp.baseUnit}px base unit (${Math.round(sp.coverage * 100)}% of values fit)` : 'no consistent base unit'}; scale: ${sp.scale.map((s) => `${s.px}px`).join(', ') || 'n/a'}.`,
-    `- **Radius:** ${tokens.radius.map((r) => `${r.value} (${r.count})`).join(', ') || 'none'}.`,
+    `- **Radius:** ${tokens.radius.map((r) => `${radiusLabel(r)} (${r.count})`).join(', ') || 'none'}. Exact radii per element are in the key elements of section 4 and in section 5.`,
   );
   if (tokens.shadows.length === 0) lines.push('- **Shadows:** none.');
   else {
@@ -167,6 +174,13 @@ function tokenSection(input: DesignMdInput, caps: Caps): string[] {
   return lines;
 }
 
+/** Percent radii only make circles/ellipses; say so instead of letting them look like a scale step. */
+function radiusLabel(r: DesignTokens['radius'][number]): string {
+  if (r.px === 9999) return '9999px (pill ends: only on elements whose height is at most twice the radius)';
+  if (r.px === null) return `${r.value} (${r.value === '50%' || r.value === '100%' ? 'avatars/circles only' : 'percentage radius'})`;
+  return r.value;
+}
+
 function describeLayout(section: PageSection): string {
   const l = section.layout;
   const parts = [l.display + (l.flexDirection ? ` ${l.flexDirection}` : ''), `${l.columns} column${l.columns === 1 ? '' : 's'}`];
@@ -174,6 +188,71 @@ function describeLayout(section: PageSection): string {
   parts.push(l.containerMaxWidth ? `content max-width ${px(l.containerMaxWidth)}, ${l.alignment}` : `content ${l.alignment} width`);
   if (l.paddingY) parts.push(`vertical padding ${l.paddingY}`);
   return parts.join('; ');
+}
+
+const hexRef = (c: { hex: string; token: string | null } | null): string => (c ? `${c.token ? `${c.token} ` : ''}${c.hex}` : 'none');
+const radiusText = (value: string | null, pill: boolean): string => (value === null ? 'square' : pill ? `${value} (pill)` : value);
+
+function describeLines(lines: readonly DecorativeLine[]): string[] {
+  const groups = new Map<string, DecorativeLine[]>();
+  for (const l of lines) {
+    const key = `${l.orientation}|${l.thicknessPx}|${l.color ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), l]);
+  }
+  return [...groups.values()].map((group) => {
+    const first = group[0] as DecorativeLine;
+    const axis = first.orientation === 'vertical' ? 'x' : 'y';
+    const at = group.slice(0, 6).map((l) => `${axis}=${l.at}`).join(' and ');
+    const length = Math.max(...group.map((l) => l.length));
+    return `${first.orientation} ${first.thicknessPx}px line${group.length === 1 ? '' : 's'} at ${at}${group.length > 6 ? ` (+${group.length - 6} more)` : ''}, color ${first.color ?? 'default'}, up to ${length}px long`;
+  });
+}
+
+function keyElementLines(e: KeyElement, caps: Caps, hideNotes: ReadonlySet<string>): string[] {
+  const isImage = e.role === 'image' || e.role === 'logo';
+  const head = `- **${e.role}** ${code(`<${e.tag}>`)}${e.text ? ` “${clip(e.text, KEY_ELEMENTS.maxTextChars)}”` : ''} at x ${e.rect.x}, y ${e.rect.y}, ${e.rect.width}×${e.rect.height}`;
+  const parts: string[] = [];
+  if (!isImage) {
+    parts.push(`font ${e.fontFamily ? `${e.fontFamily} ` : ''}${e.fontSizePx}px/${e.lineHeight} ${e.fontWeight}, letter-spacing ${e.letterSpacing}`);
+    parts.push(`color ${e.runs.length > 0 ? 'see runs' : hexRef(e.color)}`);
+  }
+  parts.push(`background ${hexRef(e.background)}`);
+  parts.push(`border ${e.border ?? 'none'}`);
+  parts.push(`radius ${radiusText(e.radius, e.pill)}`);
+  parts.push(`padding ${e.padding ?? 'none'}`);
+  const lines = [`${head} — ${parts.join('; ')}`];
+  if (e.src) lines.push(`  - source: ${code(shortUrl(e.src, 80))}`);
+  if (e.tailwind) lines.push(`  - classes: ${code(clip(e.tailwind, caps.classChars))}`);
+  e.runs.forEach((run, i) => {
+    const color = run.gradientText ? 'gradient-painted text' : `color ${hexRef(run.color ? { hex: run.color, token: run.colorToken } : null)}`;
+    lines.push(`  - run ${i + 1}: “${clip(run.text, 70)}” ${color}, weight ${run.fontWeight}${run.fontSizePx ? `, ${run.fontSizePx}px` : ''}`);
+  });
+  for (const note of e.notes) if (!hideNotes.has(note)) lines.push(`  - note: ${note}`);
+  return lines;
+}
+
+function keyElementsBlock(s: PageSection, caps: Caps): string[] {
+  const limit = s.index < KEY_ELEMENTS.protectedSections ? KEY_ELEMENTS.maxPerSection : Math.min(KEY_ELEMENTS.maxPerSection, caps.keyElements);
+  const shown = s.keyElements.slice(0, limit);
+  if (shown.length === 0) return [];
+  // A note that applies to every element (a hero gradient behind all of the text) is stated once.
+  const counts = new Map<string, number>();
+  for (const e of shown) for (const n of new Set(e.notes)) counts.set(n, (counts.get(n) ?? 0) + 1);
+  const shared = shown.length >= 3 ? [...counts].filter(([, n]) => n === shown.length).map(([note]) => note) : [];
+  const lines = ['- **Key elements** (reading order; measured values, use exactly):'];
+  if (shared.length > 0) lines.push(`  - applies to all of them: ${shared.join('; ')}`);
+  for (const e of shown) lines.push(...keyElementLines(e, caps, new Set(shared)).map((l) => `  ${l}`));
+  if (s.keyElements.length > shown.length) lines.push(`  - … ${s.keyElements.length - shown.length} more key elements in this section (capture.json)`);
+  return lines;
+}
+
+function geometryLines(s: PageSection): string[] {
+  const g = s.geometry;
+  const ink = g.inkLeft !== null && g.inkRight !== null ? `; visible content spans x ${g.inkLeft}–${g.inkRight} (${g.inkRight - g.inkLeft}px)` : '';
+  const lines = [`- **Container:** content box starts at x ${g.contentLeft}, ${g.contentWidth}px wide, max-width ${g.maxWidth ? px(g.maxWidth) : 'none'}${ink}`];
+  const decorative = describeLines(g.lines);
+  if (decorative.length > 0) lines.push(`- **Decorative lines** (border-only or hairline elements, not content): ${decorative.join('; ')}`);
+  return lines;
 }
 
 function layoutSection(input: DesignMdInput, caps: Caps): string[] {
@@ -189,7 +268,9 @@ function layoutSection(input: DesignMdInput, caps: Caps): string[] {
       `- **Layout:** ${describeLayout(s)}`,
     );
     if (s.headings.length > 0) lines.push(`- **Headings:** ${s.headings.map((h) => `“${h}”`).join(', ')}`);
+    lines.push(...geometryLines(s));
     if (s.tailwind) lines.push(`- **Classes:** ${code(clip(s.tailwind, caps.classChars))}`);
+    lines.push(...keyElementsBlock(s, caps));
     lines.push(`- **Screenshot:** ${shot ? code(shot.path) : 'not available'}`, '');
   }
   lines.push(...more(Math.min(caps.sections, sections.length), sections.length, 'sections'));
@@ -204,6 +285,7 @@ function componentBlock(c: ComponentGroup, caps: Caps): string[] {
     `- **Element:** ${code(`<${c.tag}>`)}, about ${c.size.width}×${c.size.height}px${c.section ? `, mostly in “${c.section}”` : ''}${c.text ? `, e.g. “${c.text}”` : ''}`,
     `- **Structure:** ${code(c.structure)}`,
     `- **Classes:** ${c.tailwind ? code(clip(c.tailwind, caps.classChars)) : '(browser defaults)'}`,
+    `- **Border radius:** ${radiusText(c.radius, c.pill)}`,
   ];
   for (const v of c.variants.slice(0, caps.variants)) {
     const diff = Object.entries(v.diff).map(([k, val]) => `${k}: ${val}`).join('; ');

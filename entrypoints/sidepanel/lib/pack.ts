@@ -2,7 +2,7 @@ import { buildAssetIndex } from '@/src/core/assets';
 import { addComponentStates, analyzeLayout, buildTree, stateSelectors } from '@/src/core/components';
 import { generateDesignMd } from '@/src/core/output';
 import { emptyTokens, generateThemeCss, generateTokens } from '@/src/core/tokens';
-import { ASSET_LIMITS, OUTPUT_LIMITS, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
+import { ASSET_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
 import { toErrorMessage } from '@/src/shared/errors';
 import { formatBytes } from '@/src/shared/format';
 import type {
@@ -95,7 +95,7 @@ export async function generatePack(
       try {
         const view = await readViewport(tab.id);
         session = await DebuggerSession.attach(tab.id);
-        const { settled } = await session.emulateWidth(settings.captureWidth, view.height, view.devicePixelRatio);
+        const { settled } = await session.emulateWidth(settings.captureWidth, Math.max(view.height, SCREENSHOT.minEmulatedHeightPx), view.devicePixelRatio);
         emulated = true;
         if (!settled) {
           warnings.push({ code: 'emulation-unsettled', message: `The page did not report a ${settings.captureWidth}px viewport in time; the capture may use another width.` });

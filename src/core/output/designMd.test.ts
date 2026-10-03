@@ -85,6 +85,13 @@ describe('generateDesignMd', () => {
     expect(md).toContain('Something was skipped.');
     expect(md).toContain('### button — 3× button');
     expect(md).toContain('1440px');
+    expect(md).toContain('Key elements');
+    expect(md).toContain('**heading** `<h1>` “Hello”');
+    expect(md).toContain('48px');
+    expect(md).toContain('Do not invent decorations');
+    expect(md).toContain('closest free Google Font');
+    expect(md).toContain('- **Container:**');
+    expect(md).toContain('**Border radius:**');
   });
 
   it('respects the size cap by summarizing, and says so when it has to cut', () => {

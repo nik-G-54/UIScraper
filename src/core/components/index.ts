@@ -1,6 +1,8 @@
 // Phase 4: layout + components. Pure functions only: capture + tokens in, sections and components out.
 import type { CaptureResult, CssStateRule, DesignTokens, LayoutAnalysis, SelectorMatches } from '../../shared/types';
 import { detectComponents } from './components';
+import { sectionGeometry } from './geometry';
+import { selectKeyElements } from './keyElements';
 import { detectSections } from './sections';
 import { attachStates } from './states';
 import { buildTailwindContext } from './tailwind';
@@ -10,7 +12,11 @@ import { buildTree } from './tree';
 export function analyzeLayout(capture: CaptureResult, tokens: DesignTokens): LayoutAnalysis {
   const tree = buildTree(capture);
   const ctx = buildTailwindContext(tokens);
-  const sections = detectSections(tree, ctx);
+  const sections = detectSections(tree, ctx).map((section) => ({
+    ...section,
+    keyElements: selectKeyElements(tree, section, ctx),
+    geometry: sectionGeometry(tree, section),
+  }));
   const warnings: LayoutAnalysis['warnings'] = [];
   if (sections.length === 0) {
     warnings.push({ code: 'no-sections', message: 'No page sections could be detected; the layout section will be empty.' });
@@ -33,6 +39,9 @@ export function addComponentStates(
   };
 }
 
+export { selectKeyElements, textRuns, runsDiffer } from './keyElements';
+export { findDecorativeLines, sectionGeometry } from './geometry';
+export { radiusInfo, describeRadius } from './radius';
 export { classifyComponent, detectComponents, outline } from './components';
 export { findSectionRoots, detectSections, sectionOfNode, summarizeLayout } from './sections';
 export { computeStructureHashes } from './structure';

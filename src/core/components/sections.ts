@@ -3,6 +3,8 @@ import type { CapturedNode, LayoutSummary, PageSection, StyleRecord } from '../.
 import { pageBackground } from '../tokens/color';
 import { gradientLayers } from '../tokens/gradient';
 import { parsePx, splitTopLevel } from '../tokens/util';
+import { findContainer } from './container';
+import { emptyGeometry } from './geometry';
 import { colorTokenName, nodeClasses, solidBackground } from './nodeClasses';
 import type { TailwindContext } from './tailwind';
 import type { Tree } from './tree';
@@ -67,18 +69,7 @@ const fmtPx = (value: string | undefined): string | null => {
 
 /** Display, columns, gap, container width, alignment and vertical padding of a block. */
 export function summarizeLayout(tree: Tree, block: CapturedNode): LayoutSummary {
-  // The content container: the first flex/grid node on the way down through single-child wrappers.
-  const chain: CapturedNode[] = [block];
-  let container = block;
-  for (let depth = 0; depth < 6; depth++) {
-    const display = tree.style(container).display;
-    if (display === 'flex' || display === 'grid' || display === 'inline-flex') break;
-    const kids = tree.visibleChildren(container);
-    const only = kids[0];
-    if (kids.length !== 1 || !only || only.rect.width < tree.pageWidth * 0.2) break;
-    container = only;
-    chain.push(only);
-  }
+  const { chain, container } = findContainer(tree, block);
   const style: StyleRecord = tree.style(container);
   const display = style.display ?? 'block';
   const kids = tree.visibleChildren(container);
@@ -182,6 +173,8 @@ export function detectSections(tree: Tree, ctx: TailwindContext): PageSection[] 
       layout: summarizeLayout(tree, block),
       headings: headingsOf(tree, block),
       tailwind: nodeClasses(tree, block, ctx).join(' '),
+      keyElements: [],
+      geometry: emptyGeometry(),
     };
   });
 }
