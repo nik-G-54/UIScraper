@@ -10,7 +10,7 @@ interface LayoutMetrics {
   contentSize?: { width: number; height: number };
 }
 
-async function decodeJpeg(base64: string): Promise<ImageBitmap> {
+export async function decodeJpeg(base64: string): Promise<ImageBitmap> {
   const blob = await (await fetch(`data:image/jpeg;base64,${base64}`)).blob();
   return createImageBitmap(blob);
 }

@@ -2,7 +2,9 @@ import type { AnalysisStep } from '@/src/shared/types';
 
 const STEPS: { id: AnalysisStep; label: string }[] = [
   { id: 'emulating-width', label: 'Setting capture width' },
+  { id: 'capturing-page-load', label: 'Filming the page load' },
   { id: 'sampling-motion', label: 'Sampling motion' },
+  { id: 'capturing-frames', label: 'Motion frames' },
   { id: 'preparing', label: 'Preparing' },
   { id: 'scrolling', label: 'Scrolling' },
   { id: 'stabilizing', label: 'Stabilizing' },
@@ -25,18 +27,20 @@ export function ProgressSteps({
   autoScroll,
   emulate,
   motion = true,
+  pageLoad = false,
 }: {
   step: AnalysisStep;
   autoScroll: boolean;
   /** False when the capture width is "Current window": no width override step. */
   emulate: boolean;
   motion?: boolean;
+  pageLoad?: boolean;
 }) {
   const currentIndex = STEPS.findIndex((s) => s.id === step);
   return (
     <ol className="flex flex-col gap-1.5" aria-label="Progress">
       {STEPS.map((s, index) => {
-        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate) || (s.id === 'sampling-motion' && !motion);
+        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate) || ((s.id === 'sampling-motion' || s.id === 'capturing-frames') && !motion) || (s.id === 'capturing-page-load' && !pageLoad);
         const state = skipped ? 'skipped' : index < currentIndex || step === 'done' ? 'done' : index === currentIndex ? 'active' : 'pending';
         return (
           <li

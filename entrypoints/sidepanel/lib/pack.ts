@@ -3,7 +3,8 @@ import { applyNodeIds } from '@/src/core/motion/collect';
 import { addComponentStates, analyzeLayout, buildTree, stateSelectors } from '@/src/core/components';
 import { generateDesignMd } from '@/src/core/output';
 import { emptyTokens, generateThemeCss, generateTokens } from '@/src/core/tokens';
-import { ASSET_LIMITS, MOTION_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
+import { planEffectFrames, planHeroFrames } from '@/src/core/motion/frames';
+import { ASSET_LIMITS, FRAME_LIMITS, MOTION_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
 import { toErrorMessage } from '@/src/shared/errors';
 import { formatBytes } from '@/src/shared/format';
 import type {
@@ -16,6 +17,7 @@ import type {
   CssData,
   DesignTokens,
   LayoutAnalysis,
+  MotionFrameIndex,
   ScreenshotIndex,
   Settings,
 } from '@/src/shared/types';
@@ -24,6 +26,8 @@ import { downloadAssets } from './assets';
 import { captureTab, injectExtractor } from './capture';
 import { collectCssData } from './css';
 import { downloadBlob } from './download';
+import { captureFrames, capturePageLoad } from './frames';
+import type { FrameBudget } from './frames';
 import { DebuggerSession, readViewport } from './emulation';
 import { requestAssets, requestMotion, requestMotionIds, requestSelectorMatches } from './page';
 import { takeScreenshots } from './screenshot';
@@ -34,6 +38,7 @@ export interface PackResult {
   capture: CaptureResult;
   /** Null when motion capture is off or failed. */
   motion: MotionData | null;
+  motionFrames: MotionFrameIndex;
   css: CssData;
   tokens: DesignTokens;
   tokensFailed: boolean;
@@ -74,7 +79,7 @@ const noScreens = (): ScreenshotIndex => ({ fullPage: null, sections: [], warnin
  */
 export async function generatePack(
   tab: ActiveTabInfo,
-  settings: Pick<Settings, 'autoScroll' | 'captureWidth' | 'captureMotion'>,
+  settings: Pick<Settings, 'autoScroll' | 'captureWidth' | 'captureMotion' | 'capturePageLoad'>,
   onStep: (step: AnalysisStep) => void,
 ): Promise<PackResult> {
   const warnings: CaptureWarning[] = [];
@@ -85,6 +90,9 @@ export async function generatePack(
 
   let capture: CaptureResult;
   let motion: MotionData | null = null;
+  const motionFrames: MotionFrameIndex = { frames: [], loader: null, warnings: [] };
+  const frameBudget: FrameBudget = { frames: 0, bytes: 0 };
+  const frameFiles: PackFile[] = [];
   let css: CssData;
   let tokens: DesignTokens;
   let tokensFailed: boolean;
@@ -115,6 +123,31 @@ export async function generatePack(
       }
     }
 
+    // 1b. Frames need the debugger even when the width is not forced.
+    const wantsFrames = settings.captureMotion || settings.capturePageLoad;
+    if (!session && wantsFrames) {
+      session = await attempt<DebuggerSession | null>(warnings, 'frames-skipped', 'Motion frames and page-load capture were skipped because the debugger could not be attached', null, () => DebuggerSession.attach(tab.id));
+    }
+
+    // 1c. Page load: reload, film the first seconds, wait for load (the extractor is injected afterwards).
+    if (session && settings.capturePageLoad) {
+      onStep('capturing-page-load');
+      const run = await capturePageLoad(session, tab.id, FRAME_LIMITS, frameBudget);
+      motionFrames.frames.push(...run.index.frames);
+      motionFrames.warnings.push(...run.index.warnings);
+      motionFrames.loader = run.loader;
+      frameFiles.push(...run.files);
+    }
+
+    // 1d. Hero frames, before any animation is paused.
+    if (session && settings.captureMotion) {
+      onStep('capturing-frames');
+      const run = await captureFrames(session, tab.id, planHeroFrames(FRAME_LIMITS), FRAME_LIMITS, frameBudget);
+      motionFrames.frames.push(...run.index.frames);
+      motionFrames.warnings.push(...run.index.warnings);
+      frameFiles.push(...run.files);
+    }
+
     // 2. Motion, sampled BEFORE the animation-pause CSS of the capture is applied.
     let injected = false;
     if (settings.captureMotion) {
@@ -123,6 +156,16 @@ export async function generatePack(
         await injectExtractor(tab.id);
         injected = true;
         motion = await requestMotion(tab.id, MOTION_LIMITS);
+        if (session) {
+          // Effect frames: reveals, carousels and scroll-linked effects found by the scan.
+          onStep('capturing-frames');
+          const view = await readViewport(tab.id);
+          const plan = planEffectFrames(motion, { width: view.width, height: view.height }, FRAME_LIMITS, frameBudget.frames);
+          const run = await captureFrames(session, tab.id, plan, FRAME_LIMITS, frameBudget);
+          motionFrames.frames.push(...run.index.frames);
+          motionFrames.warnings.push(...run.index.warnings);
+          frameFiles.push(...run.files);
+        }
       } catch (error) {
         warnings.push({ code: 'motion-failed', message: `Motion could not be sampled: ${toErrorMessage(error)}.` });
       }
@@ -206,7 +249,7 @@ export async function generatePack(
 
   onStep('writing-design-md');
   const themeCss = await attempt(warnings, 'theme-failed', 'theme.css could not be generated', '/* theme.css could not be generated. */\n', () => generateThemeCss(tokens));
-  warnings.push(...capture.warnings, ...css.warnings, ...layout.warnings, ...assets.warnings, ...screens.warnings);
+  warnings.push(...motionFrames.warnings, ...capture.warnings, ...css.warnings, ...layout.warnings, ...assets.warnings, ...screens.warnings);
   const allWarnings = dedupe(warnings);
   const designMd = await attempt(
     allWarnings,
@@ -222,11 +265,11 @@ export async function generatePack(
     { path: 'tokens.json', data: `${JSON.stringify(tokens, null, 2)}\n` },
     { path: 'theme.css', data: themeCss },
   ];
-  const captureJson = JSON.stringify(motion ? { ...capture, motion } : capture);
+  const captureJson = JSON.stringify(motion ? { ...capture, motion, motionFrames } : capture);
   if (captureJson.length > OUTPUT_LIMITS.maxCaptureJsonBytes) {
     allWarnings.push({ code: 'capture-json-omitted', message: `capture.json is ${formatBytes(captureJson.length)}, over the ${formatBytes(OUTPUT_LIMITS.maxCaptureJsonBytes)} limit, so it was left out of the zip.` });
   } else files.push({ path: 'capture.json', data: captureJson });
-  files.push(...assetFiles, ...screenFiles);
+  files.push(...assetFiles, ...screenFiles, ...frameFiles);
 
   let zip: PackResult['zip'] = null;
   let saveError: string | null = null;
@@ -243,5 +286,5 @@ export async function generatePack(
   }
 
   onStep('done');
-  return { capture, motion, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
+  return { capture, motion, motionFrames, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
 }

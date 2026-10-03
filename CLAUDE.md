@@ -170,7 +170,7 @@ capture stops the run; every later failure is a warning and the zip is still pro
 Resume from the first unticked milestone. After each: typecheck, lint, test, build, tick, commit "M<n>: <title>".
 
 - [x] M1: Motion capture (extractor): libraries, running animations, scroll reveals, scroll-linked effects, carousels, videos -> `motion` in capture.json
-- [ ] M2: Motion frames (hero, per-effect) + optional page-load capture (loader detection) -> assets/motion/
+- [x] M2: Motion frames (hero, per-effect) + optional page-load capture (loader detection) -> assets/motion/
 - [ ] M3: design.md "Motion & interactions" + "## 0. Build checklist" + AGENT_PROMPT.md + "Copy agent prompt" button
 - [ ] M4: AI layer (Gemini REST, pre-checks, retry/fallback, validator, final assembly, masking, design.rules.md)
 
@@ -181,6 +181,12 @@ Resume from the first unticked milestone. After each: typecheck, lint, test, bui
 - The scan runs BEFORE the animation-pause CSS: pack.ts injects the extractor, sends `designlens/collect-motion`, then `captureTab(..., alreadyInjected)`
   (so the extractor keeps the scan's target elements), then `designlens/resolve-motion` fills `nodeId`s. Result goes into capture.json as `motion`.
 - Budgets: `MOTION_LIMITS` in config (`maxMotionTimeMs` = MAX_MOTION_TIME). Settings `captureMotion` (default on), `capturePageLoad` (default off).
+
+- Frames (M2): `core/motion/frames.ts` plans them (pure: hero, reveal before/after, carousel, scroll start/middle/end, load times, `detectLoader`);
+  `sidepanel/lib/frames.ts` takes them through the debugger (downscaled to `FRAME_LIMITS.maxFrameWidth`, one shared frame/byte budget) into
+  `assets/motion/`. Page-load capture (`capturePageLoad`, default off) reloads with the debugger attached, then pack.ts re-injects the extractor.
+  Scroll is always restored after frames. Scroll-linked frames capture the viewport (not an element crop); reveal "before" frames show the
+  revealed state if the page does not hide elements again when they leave the viewport.
 
 ## Roadmap
 

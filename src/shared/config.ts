@@ -1,4 +1,4 @@
-import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, MotionLimits, SelectorMatchLimits, Settings } from './types';
+import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, FrameLimits, MotionLimits, SelectorMatchLimits, Settings } from './types';
 
 /**
  * Extraction budgets. Every extraction phase must read its limits from here
@@ -177,6 +177,23 @@ export const MOTION_LIMITS: MotionLimits = {
   maxVideos: 20,
   revealWindowMs: 800,
   scrollStepDelayMs: 160,
+};
+
+/** Motion frames and page-load capture (M2). */
+export const FRAME_LIMITS: FrameLimits = {
+  heroFrames: 6,
+  heroSpanMs: 3_000,
+  maxFrameWidth: 1024,
+  jpegQuality: 70,
+  maxRevealPresets: 4,
+  maxCarousels: 3,
+  maxScrollEffects: 4,
+  maxFrames: 40,
+  maxTotalBytes: 8_000_000,
+  loadIntervalMs: 400,
+  loadSpanMs: 3_000,
+  maxLoadFrames: 10,
+  loadTimeoutMs: 15_000,
 };
 
 /** Per-section key elements and geometry (design.md fidelity). */

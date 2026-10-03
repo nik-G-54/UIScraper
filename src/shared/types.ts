@@ -313,7 +313,9 @@ export interface ExtractorProgressMessage {
 /** Everything the side panel shows while analyzing: the capture steps, then CSS and tokens. */
 export type AnalysisStep =
   | 'emulating-width'
+  | 'capturing-page-load'
   | 'sampling-motion'
+  | 'capturing-frames'
   | Exclude<ProgressStep, 'done'>
   | 'collecting-css'
   | 'parsing-css'
@@ -1056,4 +1058,51 @@ export interface MotionData {
   videos: VideoInfo[];
   warnings: CaptureWarning[];
   stats: { durationMs: number; truncated: boolean; scrollSamples: number };
+}
+
+// ---------------------------------------------------------------------------
+// Motion frames and page-load capture (final batch, M2)
+// ---------------------------------------------------------------------------
+
+export type MotionFrameKind = 'hero' | 'reveal' | 'carousel' | 'scroll' | 'load';
+
+/** One saved frame (a JPEG in the zip) with a one-line description for design.md. */
+export interface MotionFrame {
+  path: string;
+  kind: MotionFrameKind;
+  description: string;
+}
+
+export interface LoaderInfo {
+  detected: boolean;
+  /** How long the overlay stayed (ms after the reload started); null when not detected. */
+  visibleForMs: number | null;
+  description: string;
+}
+
+export interface MotionFrameIndex {
+  frames: MotionFrame[];
+  /** Null unless page-load capture ran. */
+  loader: LoaderInfo | null;
+  warnings: CaptureWarning[];
+}
+
+/** Limits for frame capture (values live in src/shared/config.ts). */
+export interface FrameLimits {
+  heroFrames: number;
+  heroSpanMs: number;
+  /** Frames are downscaled to at most this width (px). */
+  maxFrameWidth: number;
+  jpegQuality: number;
+  maxRevealPresets: number;
+  maxCarousels: number;
+  maxScrollEffects: number;
+  /** All hero + effect + load frames together. */
+  maxFrames: number;
+  /** Sum of JPEG bytes; capture stops once reached. */
+  maxTotalBytes: number;
+  loadIntervalMs: number;
+  loadSpanMs: number;
+  maxLoadFrames: number;
+  loadTimeoutMs: number;
 }

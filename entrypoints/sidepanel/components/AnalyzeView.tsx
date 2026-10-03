@@ -14,7 +14,7 @@ import { Card, ErrorBanner, Notice, Spinner } from './ui';
 
 type AnalysisState =
   | { status: 'idle' }
-  | { status: 'loading'; tabId: number; step: AnalysisStep; autoScroll: boolean; captureWidth: CaptureWidthSetting; captureMotion: boolean }
+  | { status: 'loading'; tabId: number; step: AnalysisStep; autoScroll: boolean; captureWidth: CaptureWidthSetting; captureMotion: boolean; capturePageLoad: boolean }
   | { status: 'success'; tabId: number; url: string; pack: PackResult }
   | { status: 'error'; tabId: number; url: string; message: string };
 
@@ -76,6 +76,7 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
       autoScroll: settings.autoScroll,
       captureWidth: settings.captureWidth,
       captureMotion: settings.captureMotion,
+      capturePageLoad: settings.capturePageLoad,
     });
     try {
       const pack = await generatePack(target, settings, setStep);
@@ -118,7 +119,7 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
 
       {shown?.status === 'loading' && (
         <Card title="Progress">
-          <ProgressSteps step={shown.step} autoScroll={shown.autoScroll} emulate={shown.captureWidth !== 'window'} motion={shown.captureMotion} />
+          <ProgressSteps step={shown.step} autoScroll={shown.autoScroll} emulate={shown.captureWidth !== 'window'} motion={shown.captureMotion} pageLoad={shown.capturePageLoad} />
         </Card>
       )}
       {shown?.status === 'error' && <ErrorBanner title="Design pack failed" message={shown.message} />}
