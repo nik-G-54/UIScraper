@@ -1,8 +1,9 @@
 import { buildAssetIndex } from '@/src/core/assets';
+import { applyNodeIds } from '@/src/core/motion/collect';
 import { addComponentStates, analyzeLayout, buildTree, stateSelectors } from '@/src/core/components';
 import { generateDesignMd } from '@/src/core/output';
 import { emptyTokens, generateThemeCss, generateTokens } from '@/src/core/tokens';
-import { ASSET_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
+import { ASSET_LIMITS, MOTION_LIMITS, OUTPUT_LIMITS, SCREENSHOT, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
 import { toErrorMessage } from '@/src/shared/errors';
 import { formatBytes } from '@/src/shared/format';
 import type {
@@ -10,6 +11,7 @@ import type {
   AnalysisStep,
   AssetIndex,
   CaptureResult,
+  MotionData,
   CaptureWarning,
   CssData,
   DesignTokens,
@@ -19,17 +21,19 @@ import type {
 } from '@/src/shared/types';
 import { buildFileName } from '@/src/shared/url';
 import { downloadAssets } from './assets';
-import { captureTab } from './capture';
+import { captureTab, injectExtractor } from './capture';
 import { collectCssData } from './css';
 import { downloadBlob } from './download';
 import { DebuggerSession, readViewport } from './emulation';
-import { requestAssets, requestSelectorMatches } from './page';
+import { requestAssets, requestMotion, requestMotionIds, requestSelectorMatches } from './page';
 import { takeScreenshots } from './screenshot';
 import { buildZip } from './zip';
 import type { PackFile } from './zip';
 
 export interface PackResult {
   capture: CaptureResult;
+  /** Null when motion capture is off or failed. */
+  motion: MotionData | null;
   css: CssData;
   tokens: DesignTokens;
   tokensFailed: boolean;
@@ -70,7 +74,7 @@ const noScreens = (): ScreenshotIndex => ({ fullPage: null, sections: [], warnin
  */
 export async function generatePack(
   tab: ActiveTabInfo,
-  settings: Pick<Settings, 'autoScroll' | 'captureWidth'>,
+  settings: Pick<Settings, 'autoScroll' | 'captureWidth' | 'captureMotion'>,
   onStep: (step: AnalysisStep) => void,
 ): Promise<PackResult> {
   const warnings: CaptureWarning[] = [];
@@ -80,6 +84,7 @@ export async function generatePack(
   window.addEventListener('pagehide', releaseOnPageHide);
 
   let capture: CaptureResult;
+  let motion: MotionData | null = null;
   let css: CssData;
   let tokens: DesignTokens;
   let tokensFailed: boolean;
@@ -110,10 +115,34 @@ export async function generatePack(
       }
     }
 
-    // 2. Capture (the only step whose failure ends the run).
-    capture = await captureTab(tab, settings, (step) => {
-      if (step !== 'done') onStep(step);
-    });
+    // 2. Motion, sampled BEFORE the animation-pause CSS of the capture is applied.
+    let injected = false;
+    if (settings.captureMotion) {
+      onStep('sampling-motion');
+      try {
+        await injectExtractor(tab.id);
+        injected = true;
+        motion = await requestMotion(tab.id, MOTION_LIMITS);
+      } catch (error) {
+        warnings.push({ code: 'motion-failed', message: `Motion could not be sampled: ${toErrorMessage(error)}.` });
+      }
+    }
+
+    // 3. Capture (the only step whose failure ends the run).
+    capture = await captureTab(
+      tab,
+      settings,
+      (step) => {
+        if (step !== 'done') onStep(step);
+      },
+      injected,
+    );
+    if (motion) {
+      const sampled = motion;
+      const ids = await attempt<Array<number | null> | null>(warnings, 'motion-ids-failed', 'Motion targets could not be matched to captured nodes', null, () => requestMotionIds(tab.id));
+      motion = ids ? applyNodeIds(sampled, ids) : sampled;
+      warnings.push(...motion.warnings);
+    }
     capture.meta.emulated = emulated;
     if (capture.meta.captureWidth < MIN_DESKTOP_WIDTH) {
       warnings.push({
@@ -124,14 +153,14 @@ export async function generatePack(
       warnings.push({ code: 'width-mismatch', message: `Asked for ${settings.captureWidth}px but the page rendered at ${capture.meta.captureWidth}px.` });
     }
 
-    // 3. CSS and tokens.
+    // 4. CSS and tokens.
     css = await collectCssData(tab, (step) => onStep(step));
     onStep('generating-tokens');
     const generated = await attempt<DesignTokens | null>(warnings, 'tokens-failed', 'Design tokens could not be generated', null, () => generateTokens(capture, css));
     tokensFailed = generated === null;
     tokens = generated ?? emptyTokens(capture);
 
-    // 4. Layout, components and their states.
+    // 5. Layout, components and their states.
     onStep('analyzing-layout');
     layout = await attempt(warnings, 'layout-failed', 'Layout and component analysis failed', layout, () => analyzeLayout(capture, tokens));
     const selectors = stateSelectors(css.stateRules);
@@ -142,7 +171,7 @@ export async function generatePack(
       });
     }
 
-    // 5. Assets as the page sees them, then screenshots while the debugger is still attached.
+    // 6. Assets as the page sees them, then screenshots while the debugger is still attached.
     onStep('collecting-assets');
     rawAssets = await attempt(warnings, 'assets-failed', 'Images and SVGs could not be read from the page', null, () => requestAssets(tab.id, ASSET_LIMITS));
 
@@ -193,7 +222,7 @@ export async function generatePack(
     { path: 'tokens.json', data: `${JSON.stringify(tokens, null, 2)}\n` },
     { path: 'theme.css', data: themeCss },
   ];
-  const captureJson = JSON.stringify(capture);
+  const captureJson = JSON.stringify(motion ? { ...capture, motion } : capture);
   if (captureJson.length > OUTPUT_LIMITS.maxCaptureJsonBytes) {
     allWarnings.push({ code: 'capture-json-omitted', message: `capture.json is ${formatBytes(captureJson.length)}, over the ${formatBytes(OUTPUT_LIMITS.maxCaptureJsonBytes)} limit, so it was left out of the zip.` });
   } else files.push({ path: 'capture.json', data: captureJson });
@@ -214,5 +243,5 @@ export async function generatePack(
   }
 
   onStep('done');
-  return { capture, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
+  return { capture, motion, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
 }

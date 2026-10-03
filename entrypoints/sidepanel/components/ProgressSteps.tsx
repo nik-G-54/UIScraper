@@ -2,6 +2,7 @@ import type { AnalysisStep } from '@/src/shared/types';
 
 const STEPS: { id: AnalysisStep; label: string }[] = [
   { id: 'emulating-width', label: 'Setting capture width' },
+  { id: 'sampling-motion', label: 'Sampling motion' },
   { id: 'preparing', label: 'Preparing' },
   { id: 'scrolling', label: 'Scrolling' },
   { id: 'stabilizing', label: 'Stabilizing' },
@@ -23,17 +24,19 @@ export function ProgressSteps({
   step,
   autoScroll,
   emulate,
+  motion = true,
 }: {
   step: AnalysisStep;
   autoScroll: boolean;
   /** False when the capture width is "Current window": no width override step. */
   emulate: boolean;
+  motion?: boolean;
 }) {
   const currentIndex = STEPS.findIndex((s) => s.id === step);
   return (
     <ol className="flex flex-col gap-1.5" aria-label="Progress">
       {STEPS.map((s, index) => {
-        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate);
+        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate) || (s.id === 'sampling-motion' && !motion);
         const state = skipped ? 'skipped' : index < currentIndex || step === 'done' ? 'done' : index === currentIndex ? 'active' : 'pending';
         return (
           <li
@@ -51,7 +54,7 @@ export function ProgressSteps({
             </span>
             <span className={state === 'active' ? 'font-semibold' : ''}>
               {s.label}
-              {skipped && (s.id === 'scrolling' ? ' (off in Settings)' : ' (current window width)')}
+              {skipped && (s.id === 'emulating-width' ? ' (current window width)' : ' (off in Settings)')}
             </span>
           </li>
         );

@@ -41,6 +41,8 @@ export function parseSettings(raw: unknown): Settings {
         : DEFAULT_SETTINGS.dailyAiLimit,
     autoScroll: typeof source.autoScroll === 'boolean' ? source.autoScroll : DEFAULT_SETTINGS.autoScroll,
     captureWidth: parseCaptureWidth(source.captureWidth),
+    captureMotion: typeof source.captureMotion === 'boolean' ? source.captureMotion : DEFAULT_SETTINGS.captureMotion,
+    capturePageLoad: typeof source.capturePageLoad === 'boolean' ? source.capturePageLoad : DEFAULT_SETTINGS.capturePageLoad,
   };
 }
 

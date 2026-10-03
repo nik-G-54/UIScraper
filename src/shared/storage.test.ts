@@ -27,6 +27,8 @@ describe('storage wrapper', () => {
       dailyAiLimit: 5,
       autoScroll: false,
       captureWidth: 1280,
+      captureMotion: false,
+      capturePageLoad: true,
     } as const;
     await saveSettings(settings);
     expect(mock.data.settings).toEqual(settings);

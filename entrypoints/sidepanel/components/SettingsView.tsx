@@ -37,6 +37,8 @@ interface Draft {
   dailyAiLimit: string;
   autoScroll: boolean;
   captureWidth: CaptureWidthSetting;
+  captureMotion: boolean;
+  capturePageLoad: boolean;
 }
 
 const toDraft = (s: Settings): Draft => ({ ...s, dailyAiLimit: String(s.dailyAiLimit) });
@@ -67,7 +69,9 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
     draft.model !== saved.model ||
     draft.dailyAiLimit !== String(saved.dailyAiLimit) ||
     draft.autoScroll !== saved.autoScroll ||
-    draft.captureWidth !== saved.captureWidth;
+    draft.captureWidth !== saved.captureWidth ||
+    draft.captureMotion !== saved.captureMotion ||
+    draft.capturePageLoad !== saved.capturePageLoad;
 
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -88,6 +92,8 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
         dailyAiLimit: parsedLimit,
         autoScroll: draft.autoScroll,
         captureWidth: draft.captureWidth,
+        captureMotion: draft.captureMotion,
+        capturePageLoad: draft.capturePageLoad,
       });
       setSaved(next);
       setDraft(toDraft(next));
@@ -136,6 +142,26 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
             <span className="block text-xs text-slate-500">
               Scrolls the page top to bottom before capturing so lazy-loaded images and infinite scroll render.
               The scroll position is restored afterwards.
+            </span>
+          </span>
+        </label>
+        <label className="mt-3 flex cursor-pointer items-start gap-2">
+          <input type="checkbox" checked={draft.captureMotion} onChange={(e) => update('captureMotion', e.target.checked)} className="mt-1" />
+          <span>
+            <span className="font-medium">Capture motion</span>
+            <span className="block text-xs text-slate-500">
+              Detects animation libraries and samples running animations, scroll reveals, scroll-linked effects, carousels and
+              videos before the capture (adds up to about 25 seconds). Also records hero and effect frames.
+            </span>
+          </span>
+        </label>
+        <label className="mt-3 flex cursor-pointer items-start gap-2">
+          <input type="checkbox" checked={draft.capturePageLoad} onChange={(e) => update('capturePageLoad', e.target.checked)} className="mt-1" />
+          <span>
+            <span className="font-medium">Capture page load (loaders/intro)</span>
+            <span className="block text-xs text-slate-500">
+              Reloads the page with the debugger attached and films the first seconds, then detects a loader. Off by
+              default: the reload discards any unsaved state on the page.
             </span>
           </span>
         </label>

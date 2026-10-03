@@ -1,15 +1,15 @@
-import { SCHEMA_VERSION } from '@/src/shared/types';
-import type { AssetLimits, ExtractorRequest, RawAssetCollection, SelectorMatches, SelectorMatchLimits } from '@/src/shared/types';
+import { MOTION_SCHEMA_VERSION, SCHEMA_VERSION } from '@/src/shared/types';
+import type { AssetLimits, MotionData, MotionLimits, ExtractorRequest, RawAssetCollection, SelectorMatches, SelectorMatchLimits } from '@/src/shared/types';
 
 const PAGE_REPLY_TIMEOUT_MS = 20_000;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 
 /** Send a request to the injected extractor and return its (still unchecked) successful reply. */
-async function askPage(tabId: number, request: ExtractorRequest): Promise<Record<string, unknown>> {
+async function askPage(tabId: number, request: ExtractorRequest, timeoutMs = PAGE_REPLY_TIMEOUT_MS): Promise<Record<string, unknown>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error('the page did not answer in time')), PAGE_REPLY_TIMEOUT_MS);
+    timer = setTimeout(() => reject(new Error('the page did not answer in time')), timeoutMs);
   });
   try {
     const reply: unknown = await Promise.race([chrome.tabs.sendMessage(tabId, request, { frameId: 0 }), timeout]);
@@ -54,4 +54,25 @@ export async function requestAssets(tabId: number, limits: AssetLimits): Promise
     throw new Error('the page returned malformed asset data');
   }
   return assets as unknown as RawAssetCollection;
+}
+
+/** Run the motion scan on the page (before the animation-pause CSS is applied). Rejects with a readable reason. */
+export async function requestMotion(tabId: number, limits: MotionLimits): Promise<MotionData> {
+  const requestId = crypto.randomUUID();
+  const reply = await askPage(tabId, { type: 'designlens/collect-motion', requestId, limits }, limits.maxMotionTimeMs + 15_000).catch(async (error: unknown) => {
+    await chrome.tabs.sendMessage(tabId, { type: 'designlens/abort', requestId }, { frameId: 0 }).catch(() => undefined);
+    throw error;
+  });
+  const motion = reply.kind === 'motion' ? reply.motion : undefined;
+  if (!isObject(motion) || motion.schemaVersion !== MOTION_SCHEMA_VERSION || !Array.isArray(motion.animations) || !Array.isArray(motion.reveals) || !Array.isArray(motion.carousels)) {
+    throw new Error('the page returned malformed motion data');
+  }
+  return motion as unknown as MotionData;
+}
+
+/** Node ids of the last capture for the motion scan's targets. */
+export async function requestMotionIds(tabId: number): Promise<Array<number | null>> {
+  const reply = await askPage(tabId, { type: 'designlens/resolve-motion' });
+  if (reply.kind !== 'motion-ids' || !Array.isArray(reply.ids)) throw new Error('unexpected reply from the page');
+  return reply.ids.map((id) => (Number.isInteger(id) ? (id as number) : null));
 }

@@ -34,6 +34,10 @@ export interface Settings {
   autoScroll: boolean;
   /** Viewport width the page is rendered at while capturing (via the debugger emulation override). */
   captureWidth: CaptureWidthSetting;
+  /** Sample animations, scroll reveals, carousels and videos before the capture (adds up to ~25s). */
+  captureMotion: boolean;
+  /** Reload the page with the debugger attached and film the first seconds (loaders, intros). */
+  capturePageLoad: boolean;
 }
 
 /** Persisted daily AI request counter. `date` is the local date as YYYY-MM-DD. */
@@ -282,6 +286,8 @@ export type ExtractorRequest =
   | { type: 'designlens/collect-css'; limits: CssLimits }
   | { type: 'designlens/match-selectors'; selectors: string[]; limits: SelectorMatchLimits }
   | { type: 'designlens/collect-assets'; limits: AssetLimits }
+  | { type: 'designlens/collect-motion'; requestId: string; limits: MotionLimits }
+  | { type: 'designlens/resolve-motion' }
   | { type: 'designlens/abort'; requestId: string };
 
 export type ExtractorErrorCode = 'ABORTED' | 'BUSY' | 'EXTRACTION_FAILED';
@@ -292,6 +298,8 @@ export type ExtractorResponse =
   | { ok: true; kind: 'css'; css: RawCssCollection }
   | { ok: true; kind: 'selector-matches'; matches: SelectorMatches }
   | { ok: true; kind: 'assets'; assets: RawAssetCollection }
+  | { ok: true; kind: 'motion'; motion: MotionData }
+  | { ok: true; kind: 'motion-ids'; ids: Array<number | null> }
   | { ok: true; kind: 'abort-ack' }
   | { ok: false; error: { code: ExtractorErrorCode; message: string } };
 
@@ -305,6 +313,7 @@ export interface ExtractorProgressMessage {
 /** Everything the side panel shows while analyzing: the capture steps, then CSS and tokens. */
 export type AnalysisStep =
   | 'emulating-width'
+  | 'sampling-motion'
   | Exclude<ProgressStep, 'done'>
   | 'collecting-css'
   | 'parsing-css'
@@ -905,4 +914,146 @@ export interface ScreenshotIndex {
   fullPage: ScreenshotFile | null;
   sections: ScreenshotFile[];
   warnings: CaptureWarning[];
+}
+
+// ---------------------------------------------------------------------------
+// Motion (final batch, M1)
+// ---------------------------------------------------------------------------
+
+export const MOTION_SCHEMA_VERSION = 1;
+
+/** Limits for the motion scan (values live in src/shared/config.ts). */
+export interface MotionLimits {
+  /** Whole-scan time budget (ms). Hitting it adds a warning and returns what was collected. */
+  maxMotionTimeMs: number;
+  maxAnimations: number;
+  maxKeyframesPerAnimation: number;
+  /** Elements scanned for hidden initial states / scroll-linked behavior. */
+  maxScanElements: number;
+  maxRevealTargets: number;
+  maxScrollCandidates: number;
+  /** Most scroll positions sampled. */
+  maxScrollSamples: number;
+  maxCarousels: number;
+  carouselWatchMs: number;
+  maxVideos: number;
+  /** How long after an element intersects its style is followed (ms). */
+  revealWindowMs: number;
+  scrollStepDelayMs: number;
+}
+
+
+/** An element a motion record refers to. `nodeId` is filled in after the DOM capture. */
+export interface MotionTarget {
+  /** Index in the scan's target list. */
+  index: number;
+  nodeId: number | null;
+  tag: string;
+  /** Document coordinates at scan time. */
+  rect: Rect;
+  /** Short text, alt or aria-label; never a class name. */
+  label: string | null;
+}
+
+export interface MotionLibrary {
+  name: string;
+  /** What was seen, e.g. `script src …/gsap.min.js`. */
+  evidence: string[];
+}
+
+export interface RunningAnimation {
+  target: MotionTarget;
+  type: 'css-animation' | 'css-transition' | 'web-animation';
+  animationName: string | null;
+  transitionProperty: string | null;
+  pseudoElement: string | null;
+  /** Offset plus the animated properties (strings), capped. */
+  keyframes: Array<Record<string, string | number | null>>;
+  durationMs: number | null;
+  delayMs: number;
+  easing: string;
+  /** null = infinite. */
+  iterations: number | null;
+  direction: string;
+  fill: string;
+}
+
+export interface RevealChange {
+  property: 'opacity' | 'transform' | 'filter' | 'clip-path';
+  from: string;
+  to: string;
+}
+
+export interface RevealRecord {
+  target: MotionTarget;
+  changes: RevealChange[];
+  /** Measured or transition-declared duration. */
+  durationMs: number | null;
+  /** Delay between the element coming into view and its change starting. */
+  delayMs: number | null;
+  easing: string | null;
+  /** e.g. `fade-up 40px`. */
+  preset: string;
+}
+
+export interface RevealPreset {
+  /** Full description, e.g. `fade-up 40px, 600ms, ease-out, stagger 100ms`. */
+  description: string;
+  name: string;
+  count: number;
+  durationMs: number | null;
+  easing: string | null;
+  staggerMs: number | null;
+  /** Targets that use it (a few). */
+  targets: number[];
+}
+
+export type ScrollEffectKind = 'parallax' | 'pinned' | 'progress' | 'horizontal';
+
+export interface ScrollEffect {
+  kind: ScrollEffectKind;
+  target: MotionTarget;
+  /** Scroll positions (document px) where the effect starts and ends. */
+  startPx: number;
+  endPx: number;
+  /** parallax: element speed offset per scroll px; horizontal: px moved per scroll px. */
+  ratio: number | null;
+  /** progress: which properties change with scroll. */
+  properties: string[];
+  description: string;
+}
+
+export interface CarouselInfo {
+  target: MotionTarget;
+  slideCount: number;
+  direction: 'horizontal' | 'vertical';
+  /** null when it did not move while watched. */
+  autoplayIntervalMs: number | null;
+  transitionMs: number | null;
+  controls: { arrows: boolean; dots: boolean };
+  moves: number;
+}
+
+export interface VideoInfo {
+  target: MotionTarget;
+  src: string | null;
+  poster: string | null;
+  autoplay: boolean;
+  loop: boolean;
+  muted: boolean;
+  width: number;
+  height: number;
+}
+
+export interface MotionData {
+  schemaVersion: typeof MOTION_SCHEMA_VERSION;
+  libraries: MotionLibrary[];
+  animations: RunningAnimation[];
+  reveals: RevealRecord[];
+  revealPresets: RevealPreset[];
+  scrollEffects: ScrollEffect[];
+  carousels: CarouselInfo[];
+  videos: VideoInfo[];
+  warnings: CaptureWarning[];
+  stats: { durationMs: number; truncated: boolean; scrollSamples: number };
 }

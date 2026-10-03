@@ -2,6 +2,7 @@ import { collectAssets } from '@/src/core/assets/collect';
 import { collectStylesheets } from '@/src/core/css/collect';
 import { createBrowserEnv, createExtractorListener, installListener, runCapture } from '@/src/core/extract';
 import { matchSelectors } from '@/src/core/extract/match';
+import { collectMotion, resolveMotionTargets } from '@/src/core/motion/collect';
 
 /**
  * Unlisted script: bundled with its imports and injected on demand by the side panel with
@@ -11,6 +12,8 @@ import { matchSelectors } from '@/src/core/extract/match';
 export default defineUnlistedScript(() => {
   // Node id -> element of the most recent capture, used to answer selector and asset questions.
   let lastElements = new Map<number, Element>();
+  // Elements the last motion scan pointed at; resolved to node ids once the capture has run.
+  let motionTargets: Element[] = [];
 
   const listener = createExtractorListener({
     extensionId: chrome.runtime.id,
@@ -21,6 +24,12 @@ export default defineUnlistedScript(() => {
     collectCss: (limits) => collectStylesheets(document, limits),
     matchSelectors: (selectors, limits) => matchSelectors(document, lastElements, selectors, limits),
     collectAssets: (limits) => collectAssets(document, lastElements, limits),
+    collectMotion: async (limits, signal) => {
+      const scan = await collectMotion(window, limits, signal);
+      motionTargets = scan.targets;
+      return scan.data;
+    },
+    resolveMotion: () => resolveMotionTargets(motionTargets, lastElements),
     sendProgress: (message) => {
       // Fire and forget: if the side panel is closed there is nobody to receive it.
       chrome.runtime.sendMessage(message).catch(() => undefined);

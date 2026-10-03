@@ -79,7 +79,7 @@ function send(tabId: number, request: ExtractorRequest): Promise<unknown> {
   return chrome.tabs.sendMessage(tabId, request, { frameId: 0 }) as Promise<unknown>;
 }
 
-async function injectExtractor(tabId: number): Promise<void> {
+export async function injectExtractor(tabId: number): Promise<void> {
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: [EXTRACTOR_SCRIPT_PATH], world: 'ISOLATED' });
   } catch (error) {
@@ -128,6 +128,8 @@ export async function captureTab(
   tab: ActiveTabInfo,
   settings: Pick<Settings, 'autoScroll'>,
   onProgress: (step: ProgressStep) => void,
+  /** The extractor is already injected (and holds state, such as the motion scan's targets): do not replace it. */
+  alreadyInjected = false,
 ): Promise<CaptureResult> {
   const restriction = getPageRestriction(tab.url);
   if (restriction.restricted) throw new DesignLensError('RESTRICTED_PAGE', restriction.reason);
@@ -166,7 +168,7 @@ export async function captureTab(
   let result: CaptureResult | undefined;
 
   try {
-    await Promise.race([injectExtractor(tab.id), watch.navigated]);
+    if (!alreadyInjected) await Promise.race([injectExtractor(tab.id), watch.navigated]);
     await chrome.scripting.insertCSS({ target: { tabId: tab.id }, css: PAUSE_ANIMATIONS_CSS, origin: 'USER' });
     cssInserted = true;
     prepareMs = Math.round(performance.now() - startedAt);

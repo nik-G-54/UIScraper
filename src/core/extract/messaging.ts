@@ -4,6 +4,8 @@ import type {
   CaptureOptions,
   CaptureResult,
   CssLimits,
+  MotionData,
+  MotionLimits,
   ExtractorProgressMessage,
   ExtractorRequest,
   ExtractorResponse,
@@ -27,6 +29,10 @@ export interface ExtractorDeps {
   matchSelectors(selectors: string[], limits: SelectorMatchLimits): SelectorMatches;
   /** Images, inline SVGs and favicons of the LAST capture's nodes. */
   collectAssets(limits: AssetLimits): RawAssetCollection;
+  /** Sample the page's motion (scrolls and restores). Run before the animation-pause CSS is applied. */
+  collectMotion(limits: MotionLimits, signal: AbortSignal): Promise<MotionData>;
+  /** Node ids of the LAST capture for the motion scan's targets (null = not captured). */
+  resolveMotion(): Array<number | null>;
   sendProgress(message: ExtractorProgressMessage): void;
   /** `chrome.runtime.id`; messages from other extensions are ignored. */
   extensionId: string | undefined;
@@ -56,6 +62,10 @@ export function isExtractorRequest(message: unknown): message is ExtractorReques
     case 'designlens/collect-css':
     case 'designlens/collect-assets':
       return isObject(message.limits);
+    case 'designlens/collect-motion':
+      return typeof message.requestId === 'string' && isObject(message.limits);
+    case 'designlens/resolve-motion':
+      return true;
     case 'designlens/match-selectors':
       return (
         isObject(message.limits) &&
@@ -129,6 +139,40 @@ export function createExtractorListener(deps: ExtractorDeps): ExtractorListener 
           respond({ ok: false, error: { code: 'EXTRACTION_FAILED', message: errorText(error, 'Could not read the page assets.') } });
         }
         return false;
+
+      case 'designlens/resolve-motion':
+        try {
+          respond({ ok: true, kind: 'motion-ids', ids: deps.resolveMotion() });
+        } catch (error) {
+          respond({ ok: false, error: { code: 'EXTRACTION_FAILED', message: errorText(error, 'Could not match the motion targets.') } });
+        }
+        return false;
+
+      case 'designlens/collect-motion': {
+        if (active) {
+          respond({ ok: false, error: { code: 'BUSY', message: 'A capture is already running on this page.' } });
+          return false;
+        }
+        const controller = new AbortController();
+        const mine = { requestId: message.requestId, controller };
+        active = mine;
+        deps.collectMotion(message.limits, controller.signal).then(
+          (motion) => {
+            if (active === mine) active = null;
+            respond({ ok: true, kind: 'motion', motion });
+          },
+          (error: unknown) => {
+            if (active === mine) active = null;
+            respond({
+              ok: false,
+              error: isAbortError(error)
+                ? { code: 'ABORTED', message: 'The motion scan was cancelled.' }
+                : { code: 'EXTRACTION_FAILED', message: errorText(error, 'The motion scan failed.') },
+            });
+          },
+        );
+        return true;
+      }
 
       case 'designlens/abort':
         if (active?.requestId === message.requestId) active.controller.abort();

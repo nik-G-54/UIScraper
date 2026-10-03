@@ -1,4 +1,4 @@
-import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, SelectorMatchLimits, Settings } from './types';
+import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, MotionLimits, SelectorMatchLimits, Settings } from './types';
 
 /**
  * Extraction budgets. Every extraction phase must read its limits from here
@@ -42,6 +42,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dailyAiLimit: DEFAULT_DAILY_AI_LIMIT,
   autoScroll: true,
   captureWidth: 1440,
+  captureMotion: true,
+  capturePageLoad: false,
 };
 
 /** Limits for CSS collection and parsing (CLAUDE.md rule 6). Hitting one adds a warning. */
@@ -159,6 +161,22 @@ export const LAYOUT_TUNING = {
   /** Members whose area differs from the group median by more than this factor are not the same component. */
   areaRatio: 4,
   maxStateDeclarations: 12,
+};
+
+/** Motion scan (M1). MAX_MOTION_TIME is `maxMotionTimeMs`. */
+export const MOTION_LIMITS: MotionLimits = {
+  maxMotionTimeMs: 25_000,
+  maxAnimations: 60,
+  maxKeyframesPerAnimation: 12,
+  maxScanElements: 6_000,
+  maxRevealTargets: 150,
+  maxScrollCandidates: 40,
+  maxScrollSamples: 40,
+  maxCarousels: 6,
+  carouselWatchMs: 4_000,
+  maxVideos: 20,
+  revealWindowMs: 800,
+  scrollStepDelayMs: 160,
 };
 
 /** Per-section key elements and geometry (design.md fidelity). */

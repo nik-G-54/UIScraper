@@ -165,6 +165,23 @@ capture stops the run; every later failure is a warning and the zip is still pro
 - design.md keeps the key elements of the first `KEY_ELEMENTS.protectedSections` sections at every size level; later sections shrink first.
 - Emulated viewport height is at least `SCREENSHOT.minEmulatedHeightPx` (900).
 
+## Final batch milestones
+
+Resume from the first unticked milestone. After each: typecheck, lint, test, build, tick, commit "M<n>: <title>".
+
+- [x] M1: Motion capture (extractor): libraries, running animations, scroll reveals, scroll-linked effects, carousels, videos -> `motion` in capture.json
+- [ ] M2: Motion frames (hero, per-effect) + optional page-load capture (loader detection) -> assets/motion/
+- [ ] M3: design.md "Motion & interactions" + "## 0. Build checklist" + AGENT_PROMPT.md + "Copy agent prompt" button
+- [ ] M4: AI layer (Gemini REST, pre-checks, retry/fallback, validator, final assembly, masking, design.rules.md)
+
+## Motion (final batch)
+
+- `src/core/motion/`: pure `libraries.ts` (signals only: script/link URLs + DOM markers), `reveals.ts` (presets, stagger), `scrollEffects.ts`
+  (parallax/pinned/progress/horizontal from samples), `carousel.ts` (interval from position samples); `collect.ts` is the page-side scan.
+- The scan runs BEFORE the animation-pause CSS: pack.ts injects the extractor, sends `designlens/collect-motion`, then `captureTab(..., alreadyInjected)`
+  (so the extractor keeps the scan's target elements), then `designlens/resolve-motion` fills `nodeId`s. Result goes into capture.json as `motion`.
+- Budgets: `MOTION_LIMITS` in config (`maxMotionTimeMs` = MAX_MOTION_TIME). Settings `captureMotion` (default on), `capturePageLoad` (default off).
+
 ## Roadmap
 
 - 0 Setup
