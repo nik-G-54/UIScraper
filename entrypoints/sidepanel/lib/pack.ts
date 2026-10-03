@@ -9,6 +9,7 @@ import { toErrorMessage } from '@/src/shared/errors';
 import { formatBytes } from '@/src/shared/format';
 import type {
   ActiveTabInfo,
+  AiSummary,
   AnalysisStep,
   AssetIndex,
   CaptureResult,
@@ -24,6 +25,7 @@ import type {
 } from '@/src/shared/types';
 import { buildFileName } from '@/src/shared/url';
 import { downloadAssets } from './assets';
+import { buildAiInputs, enhanceWithAi } from './ai';
 import { captureTab, injectExtractor } from './capture';
 import { collectCssData } from './css';
 import { downloadBlob } from './download';
@@ -49,6 +51,9 @@ export interface PackResult {
   designMd: string;
   /** AGENT_PROMPT.md, ready to paste into a coding agent. */
   agentPrompt: string;
+  /** The rule-based design.md (also in the zip as design.rules.md). */
+  rulesMd: string;
+  ai: AiSummary;
   warnings: CaptureWarning[];
   zip: { name: string; blob: Blob; fileCount: number } | null;
   /** Set when the zip was built but Chrome could not save it (the blob can be saved again). */
@@ -82,7 +87,7 @@ const noScreens = (): ScreenshotIndex => ({ fullPage: null, sections: [], warnin
  */
 export async function generatePack(
   tab: ActiveTabInfo,
-  settings: Pick<Settings, 'autoScroll' | 'captureWidth' | 'captureMotion' | 'capturePageLoad'>,
+  settings: Pick<Settings, 'autoScroll' | 'captureWidth' | 'captureMotion' | 'capturePageLoad' | 'aiMode' | 'apiKey' | 'model' | 'fallbackModel' | 'dailyAiLimit' | 'maskPersonalData'>,
   onStep: (step: AnalysisStep) => void,
 ): Promise<PackResult> {
   const warnings: CaptureWarning[] = [];
@@ -260,14 +265,14 @@ export async function generatePack(
   const themeCss = await attempt(warnings, 'theme-failed', 'theme.css could not be generated', '/* theme.css could not be generated. */\n', () => generateThemeCss(tokens));
   warnings.push(...motionFrames.warnings, ...capture.warnings, ...css.warnings, ...layout.warnings, ...assets.warnings, ...screens.warnings);
   const allWarnings = dedupe(warnings);
-  const designMd = await attempt(
+  const rulesMd = await attempt(
     allWarnings,
     'design-md-failed',
     'design.md could not be generated',
     `# Design pack\n\ndesign.md could not be generated. See tokens.json and capture.json.\n`,
     () => generateDesignMd({ capture, tokens, themeCss, css, layout, assets, screens, motion, motionFrames, warnings: allWarnings, maxChars: OUTPUT_LIMITS.maxDesignMdChars }),
   );
-  const agentPrompt = await attempt(allWarnings, 'agent-prompt-failed', 'AGENT_PROMPT.md could not be generated', '# Agent prompt\n\nRead ./design/design.md and rebuild every section in its build checklist.\n', () =>
+  const rulesPrompt = await attempt(allWarnings, 'agent-prompt-failed', 'AGENT_PROMPT.md could not be generated', '# Agent prompt\n\nRead ./design/design.md and rebuild every section in its build checklist.\n', () =>
     generateAgentPrompt({
       title: capture.meta.title || capture.meta.url,
       sections: layout.sections.map((s) => ({ name: s.name, screenshot: screens.sections.find((x) => x.name === s.name)?.path ?? null })),
@@ -278,9 +283,34 @@ export async function generatePack(
     }),
   );
 
+  // Optional AI layer: only the semantic text; any failure keeps the rule-based files.
+  onStep('ai-enhancing');
+  const ai = await enhanceWithAi({
+    settings,
+    rulesMd,
+    agentPrompt: rulesPrompt,
+    inputs: () =>
+      buildAiInputs({
+        title: capture.meta.title || capture.meta.url,
+        url: capture.meta.url,
+        designMd: rulesMd,
+        sections: layout.sections,
+        screens,
+        imageFiles: [...screenFiles, ...frameFiles],
+        motion,
+        motionFrames,
+      }),
+  });
+  const designMd = ai.designMd;
+  const agentPrompt = ai.agentPrompt;
+  if (!ai.summary.enhanced && settings.aiMode === 'always') {
+    allWarnings.push({ code: 'ai-fallback', message: `AI was required but the rule-based output was used: ${ai.summary.reason ?? 'unknown reason'}.` });
+  }
+
   onStep('zipping');
   const files: PackFile[] = [
     { path: 'design.md', data: designMd },
+    { path: 'design.rules.md', data: rulesMd },
     { path: 'AGENT_PROMPT.md', data: agentPrompt },
     { path: 'tokens.json', data: `${JSON.stringify(tokens, null, 2)}\n` },
     { path: 'theme.css', data: themeCss },
@@ -306,5 +336,5 @@ export async function generatePack(
   }
 
   onStep('done');
-  return { capture, motion, motionFrames, css, tokens, tokensFailed, layout, assets, screens, designMd, agentPrompt, warnings: allWarnings, zip, saveError };
+  return { capture, motion, motionFrames, css, tokens, tokensFailed, layout, assets, screens, designMd, rulesMd, agentPrompt, ai: ai.summary, warnings: allWarnings, zip, saveError };
 }

@@ -24,6 +24,8 @@ describe('storage wrapper', () => {
       aiProvider: 'gemini',
       apiKey: 'secret',
       model: 'my-model',
+      fallbackModel: 'my-fallback',
+      maskPersonalData: false,
       dailyAiLimit: 5,
       autoScroll: false,
       captureWidth: 1280,

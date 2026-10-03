@@ -172,7 +172,7 @@ Resume from the first unticked milestone. After each: typecheck, lint, test, bui
 - [x] M1: Motion capture (extractor): libraries, running animations, scroll reveals, scroll-linked effects, carousels, videos -> `motion` in capture.json
 - [x] M2: Motion frames (hero, per-effect) + optional page-load capture (loader detection) -> assets/motion/
 - [x] M3: design.md "Motion & interactions" + "## 0. Build checklist" + AGENT_PROMPT.md + "Copy agent prompt" button
-- [ ] M4: AI layer (Gemini REST, pre-checks, retry/fallback, validator, final assembly, masking, design.rules.md)
+- [x] M4: AI layer (Gemini REST, pre-checks, retry/fallback, validator, final assembly, masking, design.rules.md)
 
 ## Motion (final batch)
 
@@ -191,6 +191,12 @@ Resume from the first unticked milestone. After each: typecheck, lint, test, bui
 - M3: design.md starts with `## 0. Build checklist` (every section + screenshot, never capped) and section 8 is "Motion & interactions"
   (`output/motionMd.ts`; library -> Next.js advice in `motion/advice.ts`). `output/agentPrompt.ts` makes AGENT_PROMPT.md (zip root; assumes the pack
   in `./design`); the panel's "Copy agent prompt" button copies `PackResult.agentPrompt`. Video posters join the image assets; videos are never downloaded.
+
+- M4 AI layer (`src/core/ai/`): `provider.ts` (interface + `AiError`), `gemini.ts` (REST, `x-goog-api-key`, no SDK), `precheck.ts`, `inputs.ts` (token-budget
+  fitting: drop frames -> section screenshots -> shorten text -> give up), `run.ts` (retry 429/5xx with backoff, fallback model once, validate, one retry on the
+  fallback for a bad answer), `validate.ts`, `assemble.ts` (checklist + instructions + AI text + `# Reference data` with the rule-based sections unchanged),
+  `mask.ts`, `prompt.ts`. Panel side: `sidepanel/lib/ai.ts` builds the downscaled inputs and calls `runAi`; `pack.ts` always writes `design.rules.md`.
+  Every generateContent request is counted (`recordAiRequest`) just before it is sent; countTokens calls are not counted. AI "always" + fallback = error banner.
 
 ## Roadmap
 

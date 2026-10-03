@@ -26,8 +26,12 @@ export interface Settings {
   aiProvider: AiProviderId;
   /** Stored only in chrome.storage.local. Never hardcode or log. */
   apiKey: string;
-  /** Free text; there is deliberately no hardcoded model list. */
+  /** Main model (free text; there is deliberately no hardcoded model list). */
   model: string;
+  /** Used once when the main model fails with a transient error or returns an unusable answer. */
+  fallbackModel: string;
+  /** Replace emails and phone numbers in the text sent to the AI. */
+  maskPersonalData: boolean;
   /** User-set cap on AI requests per local day. */
   dailyAiLimit: number;
   /** Scroll the page during capture so lazy-loaded content renders. */
@@ -324,6 +328,7 @@ export type AnalysisStep =
   | 'collecting-assets'
   | 'downloading-assets'
   | 'taking-screenshots'
+  | 'ai-enhancing'
   | 'writing-design-md'
   | 'zipping'
   | 'done';
@@ -1105,4 +1110,39 @@ export interface FrameLimits {
   loadSpanMs: number;
   maxLoadFrames: number;
   loadTimeoutMs: number;
+}
+
+// ---------------------------------------------------------------------------
+// AI layer (final batch, M4)
+// ---------------------------------------------------------------------------
+
+/** What the AI layer did for one pack, for the UI badge. */
+export interface AiSummary {
+  enhanced: boolean;
+  model: string | null;
+  /** Why the output is rule-based; null when enhanced. */
+  reason: string | null;
+  /** `error` when AI mode is "always" and it fell back. */
+  level: 'info' | 'error';
+  requests: number;
+  tokens: { input: number; output: number } | null;
+  /** Requests counted today after this run; null when unknown. */
+  usedToday: number | null;
+  /** What was dropped to fit the token budget. */
+  dropped: string[];
+}
+
+/** Limits for the AI layer (values live in src/shared/config.ts). */
+export interface AiLimits {
+  timeoutMs: number;
+  maxRetries: number;
+  backoffMs: number[];
+  inputTokenBudget: number;
+  maxOutputTokens: number;
+  sectionImageWidth: number;
+  fullPageImageWidth: number;
+  maxSectionImages: number;
+  maxHeroFrames: number;
+  maxImageBytes: number;
+  jpegQuality: number;
 }

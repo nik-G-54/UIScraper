@@ -18,6 +18,7 @@ const STEPS: { id: AnalysisStep; label: string }[] = [
   { id: 'taking-screenshots', label: 'Screenshots' },
   { id: 'downloading-assets', label: 'Downloading images' },
   { id: 'writing-design-md', label: 'Writing design.md' },
+  { id: 'ai-enhancing', label: 'AI enhancing' },
   { id: 'zipping', label: 'Building the zip' },
   { id: 'done', label: 'Done' },
 ];
@@ -28,6 +29,7 @@ export function ProgressSteps({
   emulate,
   motion = true,
   pageLoad = false,
+  aiModel = null,
 }: {
   step: AnalysisStep;
   autoScroll: boolean;
@@ -35,12 +37,14 @@ export function ProgressSteps({
   emulate: boolean;
   motion?: boolean;
   pageLoad?: boolean;
+  /** The main model when AI will run, else null (the step is skipped). */
+  aiModel?: string | null;
 }) {
   const currentIndex = STEPS.findIndex((s) => s.id === step);
   return (
     <ol className="flex flex-col gap-1.5" aria-label="Progress">
       {STEPS.map((s, index) => {
-        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate) || ((s.id === 'sampling-motion' || s.id === 'capturing-frames') && !motion) || (s.id === 'capturing-page-load' && !pageLoad);
+        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate) || ((s.id === 'sampling-motion' || s.id === 'capturing-frames') && !motion) || (s.id === 'capturing-page-load' && !pageLoad) || (s.id === 'ai-enhancing' && !aiModel);
         const state = skipped ? 'skipped' : index < currentIndex || step === 'done' ? 'done' : index === currentIndex ? 'active' : 'pending';
         return (
           <li
@@ -57,8 +61,8 @@ export function ProgressSteps({
               {state === 'skipped' && <span>–</span>}
             </span>
             <span className={state === 'active' ? 'font-semibold' : ''}>
-              {s.label}
-              {skipped && (s.id === 'emulating-width' ? ' (current window width)' : ' (off in Settings)')}
+              {s.id === 'ai-enhancing' && aiModel ? `AI enhancing (${aiModel})` : s.label}
+              {skipped && (s.id === 'emulating-width' ? ' (current window width)' : s.id === 'ai-enhancing' ? ' (off or no API key)' : ' (off in Settings)')}
             </span>
           </li>
         );

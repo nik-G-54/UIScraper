@@ -1,4 +1,4 @@
-import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, FrameLimits, MotionLimits, SelectorMatchLimits, Settings } from './types';
+import type { AiLimits, AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, FrameLimits, MotionLimits, SelectorMatchLimits, Settings } from './types';
 
 /**
  * Extraction budgets. Every extraction phase must read its limits from here
@@ -32,13 +32,18 @@ export const EXTRACTOR_SCRIPT_PATH = 'extractor.js';
 /** Extra time the side panel allows, beyond the budgets, before declaring the page unresponsive. */
 export const EXTRACTION_MESSAGE_GRACE_MS = 15_000;
 
-export const DEFAULT_DAILY_AI_LIMIT = 20;
+export const DEFAULT_DAILY_AI_LIMIT = 15;
+
+export const DEFAULT_MAIN_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 
 export const DEFAULT_SETTINGS: Settings = {
   aiMode: 'auto',
   aiProvider: 'gemini',
   apiKey: '',
-  model: '',
+  model: DEFAULT_MAIN_MODEL,
+  fallbackModel: DEFAULT_FALLBACK_MODEL,
+  maskPersonalData: true,
   dailyAiLimit: DEFAULT_DAILY_AI_LIMIT,
   autoScroll: true,
   captureWidth: 1440,
@@ -161,6 +166,21 @@ export const LAYOUT_TUNING = {
   /** Members whose area differs from the group median by more than this factor are not the same component. */
   areaRatio: 4,
   maxStateDeclarations: 12,
+};
+
+/** AI layer (M4): timeouts, retries and how much is sent. */
+export const AI_LIMITS: AiLimits = {
+  timeoutMs: 90_000,
+  maxRetries: 2,
+  backoffMs: [1_500, 4_000],
+  inputTokenBudget: 150_000,
+  maxOutputTokens: 12_000,
+  sectionImageWidth: 1024,
+  fullPageImageWidth: 512,
+  maxSectionImages: 12,
+  maxHeroFrames: 3,
+  maxImageBytes: 4_000_000,
+  jpegQuality: 70,
 };
 
 /** Motion scan (M1). MAX_MOTION_TIME is `maxMotionTimeMs`. */

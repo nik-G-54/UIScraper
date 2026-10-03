@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { createGeminiProvider } from '@/src/core/ai';
+import { AI_LIMITS } from '@/src/shared/config';
 import { toErrorMessage } from '@/src/shared/errors';
 import { AI_MODES, AI_PROVIDERS, CAPTURE_WIDTH_PRESETS } from '@/src/shared/types';
 import type { AiMode, AiProviderId, CaptureWidthSetting, Settings } from '@/src/shared/types';
@@ -34,6 +36,8 @@ interface Draft {
   aiProvider: AiProviderId;
   apiKey: string;
   model: string;
+  fallbackModel: string;
+  maskPersonalData: boolean;
   dailyAiLimit: string;
   autoScroll: boolean;
   captureWidth: CaptureWidthSetting;
@@ -58,6 +62,7 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
+  const [keyTest, setKeyTest] = useState<{ status: 'idle' | 'testing' | 'ok' | 'invalid' | 'network' | 'other'; message: string }>({ status: 'idle', message: '' });
   const usage = useAiUsageToday();
 
   const parsedLimit = parseDailyLimit(draft.dailyAiLimit);
@@ -67,6 +72,8 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
     draft.aiProvider !== saved.aiProvider ||
     draft.apiKey !== saved.apiKey ||
     draft.model !== saved.model ||
+    draft.fallbackModel !== saved.fallbackModel ||
+    draft.maskPersonalData !== saved.maskPersonalData ||
     draft.dailyAiLimit !== String(saved.dailyAiLimit) ||
     draft.autoScroll !== saved.autoScroll ||
     draft.captureWidth !== saved.captureWidth ||
@@ -76,6 +83,13 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
     setJustSaved(false);
+  };
+
+  const testKey = async () => {
+    setKeyTest({ status: 'testing', message: '' });
+    const result = await createGeminiProvider({ apiKey: draft.apiKey.trim(), timeoutMs: Math.min(AI_LIMITS.timeoutMs, 15_000) }).testKey();
+    if (result.ok) setKeyTest({ status: 'ok', message: 'The key works.' });
+    else setKeyTest({ status: result.kind === 'invalid-key' ? 'invalid' : result.kind === 'network' ? 'network' : 'other', message: result.message });
   };
 
   const onSubmit = async (event: FormEvent) => {
@@ -89,6 +103,8 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
         aiProvider: draft.aiProvider,
         apiKey: draft.apiKey,
         model: draft.model.trim(),
+        fallbackModel: draft.fallbackModel.trim(),
+        maskPersonalData: draft.maskPersonalData,
         dailyAiLimit: parsedLimit,
         autoScroll: draft.autoScroll,
         captureWidth: draft.captureWidth,
@@ -228,19 +244,55 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
               </button>
             </div>
             <span className="text-xs text-slate-500">Stored only in this browser’s extension storage.</span>
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void testKey()}
+                disabled={draft.apiKey.trim() === '' || keyTest.status === 'testing'}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+              >
+                {keyTest.status === 'testing' ? 'Testing…' : 'Test key'}
+              </button>
+              {keyTest.status === 'ok' && <span className="text-xs text-green-700">OK: {keyTest.message}</span>}
+              {keyTest.status === 'invalid' && <span className="text-xs text-red-700">Invalid key.</span>}
+              {keyTest.status === 'network' && <span className="text-xs text-red-700">Network error: {keyTest.message}</span>}
+              {keyTest.status === 'other' && <span className="text-xs text-red-700">{keyTest.message}</span>}
+            </div>
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="font-medium">Model name</span>
+            <span className="font-medium">Main model</span>
             <input
               type="text"
               value={draft.model}
               onChange={(e) => update('model', e.target.value)}
               autoComplete="off"
               spellCheck={false}
-              placeholder="Model ID from your provider"
+              placeholder="gemini-3.8-flash"
               className={inputClass}
             />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="font-medium">Fallback model</span>
+            <input
+              type="text"
+              value={draft.fallbackModel}
+              onChange={(e) => update('fallbackModel', e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="gemini-3.5-flash-lite"
+              className={inputClass}
+            />
+            <span className="text-xs text-slate-500">Tried once when the main model is rate-limited, down, or returns an unusable answer.</span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-2">
+            <input type="checkbox" checked={draft.maskPersonalData} onChange={(e) => update('maskPersonalData', e.target.checked)} className="mt-1" />
+            <span>
+              <span className="font-medium">Mask emails and phone numbers before sending</span>
+              <span className="block text-xs text-slate-500">Replaces them in the text sent to the AI. Screenshots are sent as they are.</span>
+            </span>
           </label>
         </div>
       </Card>

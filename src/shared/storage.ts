@@ -34,7 +34,9 @@ export function parseSettings(raw: unknown): Settings {
     aiMode: oneOf(AI_MODES, source.aiMode, DEFAULT_SETTINGS.aiMode),
     aiProvider: oneOf(AI_PROVIDERS, source.aiProvider, DEFAULT_SETTINGS.aiProvider),
     apiKey: typeof source.apiKey === 'string' ? source.apiKey : DEFAULT_SETTINGS.apiKey,
-    model: typeof source.model === 'string' ? source.model : DEFAULT_SETTINGS.model,
+    model: typeof source.model === 'string' && source.model.trim() ? source.model : DEFAULT_SETTINGS.model,
+    fallbackModel: typeof source.fallbackModel === 'string' ? source.fallbackModel : DEFAULT_SETTINGS.fallbackModel,
+    maskPersonalData: typeof source.maskPersonalData === 'boolean' ? source.maskPersonalData : DEFAULT_SETTINGS.maskPersonalData,
     dailyAiLimit:
       typeof limit === 'number' && Number.isInteger(limit) && limit >= 0
         ? limit

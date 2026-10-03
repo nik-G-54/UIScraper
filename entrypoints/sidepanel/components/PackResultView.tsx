@@ -7,6 +7,25 @@ import { Card, ErrorBanner, Notice } from './ui';
 
 const PREVIEW_CHARS = 6_000;
 
+function AiBadge({ ai }: { ai: PackResult['ai'] }) {
+  const tokens = ai.tokens ? `${ai.tokens.input.toLocaleString('en-US')} in / ${ai.tokens.output.toLocaleString('en-US')} out tokens` : null;
+  const detail = [
+    ai.requests > 0 ? `${ai.requests} request${ai.requests === 1 ? '' : 's'} sent` : null,
+    tokens,
+    ai.usedToday !== null ? `${ai.usedToday} AI requests used today` : null,
+    ai.dropped.length > 0 ? `dropped to fit: ${ai.dropped.join(', ')}` : null,
+  ].filter(Boolean);
+  if (!ai.enhanced && ai.level === 'error') {
+    return <ErrorBanner title={`Rule-based (${ai.reason ?? 'AI unavailable'})`} message={`AI mode is "always", but the AI step did not complete. design.md is the rule-based version.${detail.length ? ` ${detail.join(' · ')}` : ''}`} />;
+  }
+  return (
+    <Notice tone={ai.enhanced ? 'success' : 'warning'}>
+      <p className="font-semibold">{ai.enhanced ? `AI enhanced (${ai.model})` : `Rule-based (${ai.reason ?? 'AI not used'})`}</p>
+      {detail.length > 0 && <p className="mt-1 text-xs">{detail.join(' · ')}</p>}
+    </Notice>
+  );
+}
+
 /** What a finished "Generate design pack" run produced: the zip, the warnings and a design.md preview. */
 export function PackResultView({ pack }: { pack: PackResult }) {
   const [expanded, setExpanded] = useState(false);
@@ -37,6 +56,7 @@ export function PackResultView({ pack }: { pack: PackResult }) {
 
   return (
     <>
+      <AiBadge ai={pack.ai} />
       {pack.zip ? (
         <Card title="Design pack">
           <p className="font-medium break-all">{pack.zip.name}</p>
