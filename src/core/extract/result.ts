@@ -1,0 +1,110 @@
+import { SCHEMA_VERSION } from '../../shared/types';
+import type {
+  BudgetName,
+  CaptureMeta,
+  CaptureResult,
+  CaptureWarning,
+  PipelineStep,
+} from '../../shared/types';
+import type { ScrollOutcome } from './scroll';
+import type { StabilizeOutcome } from './stabilize';
+import type { DomCapture } from './walker';
+
+export interface MetaWindow {
+  innerWidth: number;
+  innerHeight: number;
+  devicePixelRatio: number;
+}
+
+export function collectMeta(doc: Document, win: MetaWindow, now: Date = new Date()): CaptureMeta {
+  const root = doc.documentElement;
+  const body = doc.body;
+  const computedDirection = doc.defaultView?.getComputedStyle(root).direction;
+  return {
+    url: doc.location?.href ?? doc.URL,
+    title: doc.title,
+    lang: root.getAttribute('lang') ?? '',
+    dir: root.getAttribute('dir') || computedDirection || 'ltr',
+    viewportWidth: win.innerWidth,
+    viewportHeight: win.innerHeight,
+    devicePixelRatio: win.devicePixelRatio,
+    documentWidth: Math.max(root.scrollWidth, root.offsetWidth, body ? body.scrollWidth : 0),
+    documentHeight: Math.max(root.scrollHeight, root.offsetHeight, body ? body.scrollHeight : 0),
+    colorSchemeMeta: doc.querySelector('meta[name="color-scheme"]')?.getAttribute('content') ?? null,
+    timestamp: now.toISOString(),
+  };
+}
+
+export interface AssembleInput {
+  meta: CaptureMeta;
+  dom: DomCapture;
+  scroll: ScrollOutcome;
+  stabilize: StabilizeOutcome;
+  durationsMs: Record<PipelineStep, number>;
+  extraWarnings?: CaptureWarning[];
+}
+
+export function assembleResult(input: AssembleInput): CaptureResult {
+  const { meta, dom, scroll, stabilize, durationsMs } = input;
+  const { counts } = dom;
+
+  const truncatedReasons: BudgetName[] = [];
+  if (scroll.stoppedBy === 'maxScrollHeightPx' || scroll.stoppedBy === 'maxScrollTimeMs') {
+    truncatedReasons.push(scroll.stoppedBy);
+  }
+  if (!stabilize.settled) truncatedReasons.push('maxStabilizeTimeMs');
+  if (dom.truncated) truncatedReasons.push(dom.truncated);
+
+  const warnings: CaptureWarning[] = [...dom.warnings, ...(input.extraWarnings ?? [])];
+  if (scroll.stoppedBy === 'stuck') {
+    warnings.push({
+      code: 'scroll-stuck',
+      message:
+        'The page did not scroll with the window (it may use an inner scroll container), so lazy-loaded content may be missing.',
+    });
+  }
+  if (counts.closedShadowHosts > 0) {
+    warnings.push({
+      code: 'closed-shadow-roots',
+      message: `${counts.closedShadowHosts} closed shadow root(s) are opaque: their contents were not captured.`,
+    });
+  }
+  const iframes = dom.placeholders.filter((placeholder) => placeholder.tag === 'iframe');
+  if (iframes.length > 0) {
+    const crossOrigin = iframes.filter((placeholder) => placeholder.sameOrigin === false).length;
+    warnings.push({
+      code: 'iframes-not-traversed',
+      message: `${iframes.length} iframe(s) were recorded as placeholders (${crossOrigin} cross-origin); their contents are not captured.`,
+    });
+  }
+
+  const total = Object.values(durationsMs).reduce((sum, ms) => sum + ms, 0);
+  const result: CaptureResult = {
+    schemaVersion: SCHEMA_VERSION,
+    meta,
+    stats: {
+      nodesVisited: counts.visited,
+      nodesCaptured: dom.nodes.length,
+      nodesSkipped: counts.skipped,
+      hiddenNodes: counts.hidden,
+      uniqueStyles: dom.styleTable.length,
+      pseudoElements: counts.pseudoElements,
+      placeholders: dom.placeholders.length,
+      overlays: counts.overlays,
+      shadowRoots: counts.shadowRoots,
+      closedShadowHosts: counts.closedShadowHosts,
+      truncated: truncatedReasons.length > 0,
+      truncatedReasons,
+      scroll: { steps: scroll.steps, stoppedBy: scroll.stoppedBy },
+      stabilize: { settled: stabilize.settled },
+      durationsMs: { ...durationsMs, total },
+      resultBytes: 0,
+    },
+    nodes: dom.nodes,
+    styleTable: dom.styleTable,
+    placeholders: dom.placeholders,
+    warnings,
+  };
+  result.stats.resultBytes = new TextEncoder().encode(JSON.stringify(result)).length;
+  return result;
+}

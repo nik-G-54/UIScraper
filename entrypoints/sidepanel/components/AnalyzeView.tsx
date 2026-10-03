@@ -1,16 +1,28 @@
 import { useState } from 'react';
 import { toErrorMessage } from '@/src/shared/errors';
-import type { ActiveTabInfo, PageProbeResult } from '@/src/shared/types';
+import { loadSettings } from '@/src/shared/storage';
+import type { ActiveTabInfo, CaptureResult, ProgressStep } from '@/src/shared/types';
 import { getPageRestriction } from '@/src/shared/url';
 import type { ActiveTabState } from '../hooks/useActiveTab';
-import { analyzeTab } from '../lib/analyze';
+import { captureTab } from '../lib/capture';
+import { CaptureResultView } from './CaptureResultView';
+import { ProgressSteps } from './ProgressSteps';
 import { Card, ErrorBanner, Notice, Spinner } from './ui';
 
 type AnalysisState =
   | { status: 'idle' }
-  | { status: 'loading'; tabId: number; url: string }
-  | { status: 'success'; tabId: number; url: string; result: PageProbeResult }
+  | { status: 'loading'; tabId: number; step: ProgressStep; autoScroll: boolean }
+  | { status: 'success'; tabId: number; url: string; result: CaptureResult }
   | { status: 'error'; tabId: number; url: string; message: string };
+
+/** The URL the tab has right now (after a mid-capture navigation it differs from the start URL). */
+async function currentUrl(tab: ActiveTabInfo): Promise<string> {
+  try {
+    return (await chrome.tabs.get(tab.id)).url ?? tab.url;
+  } catch {
+    return tab.url;
+  }
+}
 
 export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
   const [analysis, setAnalysis] = useState<AnalysisState>({ status: 'idle' });
@@ -27,17 +39,44 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
 
   const tab = activeTab.tab;
   const restriction = getPageRestriction(tab.url);
-  // Only show state that belongs to the page currently in view.
-  const current = analysis.status !== 'idle' && analysis.tabId === tab.id && analysis.url === tab.url ? analysis : null;
-  const isLoading = current?.status === 'loading';
+  const busy = analysis.status === 'loading';
+  // Progress follows the tab being captured; finished results/errors only show for the page
+  // they belong to, so a stale result never lingers after navigating away.
+  const shown =
+    analysis.status === 'loading'
+      ? analysis.tabId === tab.id
+        ? analysis
+        : null
+      : analysis.status !== 'idle' && analysis.tabId === tab.id && analysis.url === tab.url
+        ? analysis
+        : null;
 
   const analyze = async (target: ActiveTabInfo) => {
-    setAnalysis({ status: 'loading', tabId: target.id, url: target.url });
+    let autoScroll: boolean;
     try {
-      const result = await analyzeTab(target);
+      autoScroll = (await loadSettings()).autoScroll;
+    } catch (error) {
+      setAnalysis({
+        status: 'error',
+        tabId: target.id,
+        url: target.url,
+        message: `Could not load settings: ${toErrorMessage(error)}`,
+      });
+      return;
+    }
+    setAnalysis({ status: 'loading', tabId: target.id, step: 'preparing', autoScroll });
+    try {
+      const result = await captureTab(target, { autoScroll }, (step) =>
+        setAnalysis((previous) => (previous.status === 'loading' ? { ...previous, step } : previous)),
+      );
       setAnalysis({ status: 'success', tabId: target.id, url: target.url, result });
     } catch (error) {
-      setAnalysis({ status: 'error', tabId: target.id, url: target.url, message: toErrorMessage(error) });
+      setAnalysis({
+        status: 'error',
+        tabId: target.id,
+        url: await currentUrl(target),
+        message: toErrorMessage(error),
+      });
     }
   };
 
@@ -58,47 +97,22 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
       <button
         type="button"
         onClick={() => void analyze(tab)}
-        disabled={restriction.restricted || isLoading}
+        disabled={restriction.restricted || busy}
         className="rounded-md bg-slate-900 px-3 py-2 font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
-        {isLoading ? 'Analyzing…' : 'Analyze page'}
+        {busy ? 'Analyzing…' : 'Analyze page'}
       </button>
+      {busy && !shown && (
+        <Notice tone="warning">A capture is still running on another tab. It will finish on its own.</Notice>
+      )}
 
-      {current?.status === 'loading' && <Spinner label="Reading the page…" />}
-      {current?.status === 'error' && <ErrorBanner title="Analysis failed" message={current.message} />}
-      {current?.status === 'success' && <ResultCard result={current.result} />}
+      {shown?.status === 'loading' && (
+        <Card title="Progress">
+          <ProgressSteps step={shown.step} autoScroll={shown.autoScroll} />
+        </Card>
+      )}
+      {shown?.status === 'error' && <ErrorBanner title="Analysis failed" message={shown.message} />}
+      {shown?.status === 'success' && <CaptureResultView key={shown.result.meta.timestamp} result={shown.result} />}
     </div>
-  );
-}
-
-function ResultCard({ result }: { result: PageProbeResult }) {
-  const rows: [string, string][] = [
-    ['Title', result.title || '(untitled)'],
-    ['URL', result.url],
-    ['Nodes', result.nodeCount.toLocaleString()],
-    ['Viewport', `${result.viewportWidth} × ${result.viewportHeight}px`],
-    ['Device pixel ratio', String(result.devicePixelRatio)],
-    ['Document height', `${result.documentHeight.toLocaleString()}px`],
-    ['Captured', new Date(result.timestamp).toLocaleString()],
-    ['Schema version', String(result.schemaVersion)],
-  ];
-
-  return (
-    <Card title="Page analysis">
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-        {rows.map(([label, value]) => (
-          <div key={label} className="contents">
-            <dt className="text-slate-500">{label}</dt>
-            <dd className="font-medium break-all">{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <details className="mt-3">
-        <summary className="cursor-pointer text-slate-600 select-none">Raw JSON</summary>
-        <pre className="mt-2 max-h-72 overflow-auto rounded bg-slate-900 p-2 text-xs text-slate-100">
-          {JSON.stringify(result, null, 2)}
-        </pre>
-      </details>
-    </Card>
   );
 }

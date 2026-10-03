@@ -34,6 +34,7 @@ export function parseSettings(raw: unknown): Settings {
       typeof limit === 'number' && Number.isInteger(limit) && limit >= 0
         ? limit
         : DEFAULT_SETTINGS.dailyAiLimit,
+    autoScroll: typeof source.autoScroll === 'boolean' ? source.autoScroll : DEFAULT_SETTINGS.autoScroll,
   };
 }
 

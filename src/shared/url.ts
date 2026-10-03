@@ -75,3 +75,24 @@ export function getPageRestriction(url: string | undefined | null): PageRestrict
 
   return { restricted: false };
 }
+
+/** `designlens-<hostname>-<YYYYMMDD-HHmmss>.json`, safe for any filesystem. */
+export function buildCaptureFileName(url: string, now: Date = new Date()): string {
+  let host = '';
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    // fall through to the generic name
+  }
+  const safeHost =
+    host
+      .toLowerCase()
+      .replace(/[^a-z0-9.-]+/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^[-.]+|[-.]+$/g, '') || 'page';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+    `-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `designlens-${safeHost}-${stamp}.json`;
+}

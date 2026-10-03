@@ -20,11 +20,13 @@ WXT + MV3 (Chrome), TypeScript (strict), React + Tailwind CSS v4 for the side pa
 | `npm run typecheck` | `tsc --noEmit`                                       |
 | `npm run lint`      | ESLint                                               |
 | `npm test`          | Vitest (single run)                                  |
+| `npm run icons`     | Regenerate `public/icon/*.png` (no dependencies)     |
 
 ## Layout
 
 - `entrypoints/background.ts` — minimal service worker
-- `entrypoints/sidepanel/` — React app (the orchestrator)
+- `entrypoints/extractor.ts` — unlisted script (bundled), injected on demand into the page
+- `entrypoints/sidepanel/` — React app (the orchestrator); `lib/capture.ts` runs a capture, `lib/download.ts` saves JSON
 - `src/core/**` — pure analysis logic: `extract`, `css`, `tokens`, `components`, `assets`, `output`, `ai`
 - `src/shared/` — `types.ts`, `config.ts` (budgets), `storage.ts`, `url.ts`, `errors.ts`, `usage.ts`
 
@@ -56,10 +58,44 @@ Imports use the WXT alias `@/` (project root), e.g. `@/src/shared/types`.
 10. Errors must never fail silently; surface them in the side panel UI with a readable message.
 11. Local-only project: no servers, no remote deployment.
 
+## Capture engine (Phase 1)
+
+How a capture runs (side panel = orchestrator, extractor = page-side worker):
+
+1. `lib/capture.ts` injects `extractor.js` with `executeScript({ files, world: 'ISOLATED' })` (top frame
+   only), pings it, and pauses CSS animations with `insertCSS` (USER origin). Transitions are left
+   alone so their durations are recorded.
+2. It sends a typed `designlens/extract` message (`ExtractorRequest` in `src/shared/types.ts`) with
+   the budgets from `src/shared/config.ts` and gets the result in the response. Progress comes back
+   as `designlens/progress` runtime messages. On any failure it sends `designlens/abort`.
+3. The extractor (`src/core/extract/run.ts`) runs: remember scroll -> lazy-load scroll -> wait for
+   DOM quiet -> scroll to top -> walk DOM -> cleanup. Cleanup (restore scroll, remove the temporary
+   defaults iframe) is in a `finally` and always runs. The panel then calls `removeCSS`, also always.
+4. The panel validates the result (`validateCaptureResult`) before using it.
+
+Injecting twice is safe: `installListener` replaces the previous listener instead of adding one.
+
+Data semantics worth knowing before consuming a capture:
+
+- `nodes[i].id === i`; parents always have a lower id than their children.
+- A style property that is **absent** from a `styleTable` entry has the browser's default value for
+  that tag (computed in a hidden about:blank iframe). Border colours with no border and
+  text-decoration colour/style with no decoration are pruned as invisible.
+- Hidden nodes (`visibility:hidden`, opacity 0, zero-size, descendants of opacity 0) have
+  `styleId: null`; `display:none` subtrees are skipped entirely.
+- Rects are document coordinates, captured with the page scrolled to the top.
+- The walk follows the flat tree: open shadow roots, and slotted nodes under their `<slot>`.
+  Closed shadow hosts are flagged opaque. iframes/canvas/video/embed/object are placeholders;
+  inline `<svg>` is one node.
+- The only whitelist of captured properties is `src/core/extract/styleProps.ts`.
+- Any budget hit sets `stats.truncated` and names the budget in `stats.truncatedReasons`.
+
+Bump `SCHEMA_VERSION` in `src/shared/types.ts` whenever the result shape changes.
+
 ## Roadmap
 
-- **0 Setup — current**
-- 1 Capture engine
+- 0 Setup
+- **1 Capture engine — current**
 - 2 CSS parser
 - 3 Design tokens
 - 4 Layout + components

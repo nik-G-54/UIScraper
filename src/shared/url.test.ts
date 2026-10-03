@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getPageRestriction } from './url';
+import { buildCaptureFileName, getPageRestriction } from './url';
 
 describe('getPageRestriction', () => {
   it.each([
@@ -51,5 +51,31 @@ describe('getPageRestriction', () => {
     'https://example.com/report.pdf.html',
   ])('allows %s', (url) => {
     expect(getPageRestriction(url)).toEqual({ restricted: false });
+  });
+});
+
+describe('buildCaptureFileName', () => {
+  const when = new Date(2026, 2, 5, 9, 7, 3); // local time: 2026-03-05 09:07:03
+
+  it('uses designlens-<hostname>-<timestamp>.json', () => {
+    expect(buildCaptureFileName('https://www.example.com/a/b?q=1', when)).toBe(
+      'designlens-www.example.com-20260305-090703.json',
+    );
+  });
+
+  it('sanitizes the hostname for any filesystem', () => {
+    expect(buildCaptureFileName('http://[::1]:3000/', when)).toBe('designlens-1-20260305-090703.json');
+    expect(buildCaptureFileName('https://münchen.example/', when)).toMatch(/^designlens-[a-z0-9.-]+-20260305-090703\.json$/);
+    expect(buildCaptureFileName('http://EXAMPLE.com./x', when)).toBe('designlens-example.com-20260305-090703.json');
+  });
+
+  it('never contains path separators or odd characters', () => {
+    const name = buildCaptureFileName('https://a.b/../../etc/passwd', when);
+    expect(name).toMatch(/^designlens-[a-z0-9.-]+-\d{8}-\d{6}\.json$/);
+  });
+
+  it('falls back to "page" when there is no usable hostname', () => {
+    expect(buildCaptureFileName('not a url', when)).toBe('designlens-page-20260305-090703.json');
+    expect(buildCaptureFileName('file:///C:/x.html', when)).toBe('designlens-page-20260305-090703.json');
   });
 });

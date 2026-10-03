@@ -24,6 +24,7 @@ interface Draft {
   apiKey: string;
   model: string;
   dailyAiLimit: string;
+  autoScroll: boolean;
 }
 
 const toDraft = (s: Settings): Draft => ({ ...s, dailyAiLimit: String(s.dailyAiLimit) });
@@ -52,7 +53,8 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
     draft.aiProvider !== saved.aiProvider ||
     draft.apiKey !== saved.apiKey ||
     draft.model !== saved.model ||
-    draft.dailyAiLimit !== String(saved.dailyAiLimit);
+    draft.dailyAiLimit !== String(saved.dailyAiLimit) ||
+    draft.autoScroll !== saved.autoScroll;
 
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -71,6 +73,7 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
         apiKey: draft.apiKey,
         model: draft.model.trim(),
         dailyAiLimit: parsedLimit,
+        autoScroll: draft.autoScroll,
       });
       setSaved(next);
       setDraft(toDraft(next));
@@ -87,6 +90,24 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
 
   return (
     <form onSubmit={(event) => void onSubmit(event)} className="flex flex-col gap-3">
+      <Card title="Capture">
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="checkbox"
+            checked={draft.autoScroll}
+            onChange={(e) => update('autoScroll', e.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="font-medium">Auto-scroll for lazy content</span>
+            <span className="block text-xs text-slate-500">
+              Scrolls the page top to bottom before capturing so lazy-loaded images and infinite scroll render.
+              The scroll position is restored afterwards.
+            </span>
+          </span>
+        </label>
+      </Card>
+
       <Card title="AI mode">
         <fieldset className="flex flex-col gap-2">
           <legend className="sr-only">AI mode</legend>

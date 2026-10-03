@@ -25,6 +25,7 @@ describe('storage wrapper', () => {
       apiKey: 'secret',
       model: 'my-model',
       dailyAiLimit: 5,
+      autoScroll: false,
     } as const;
     await saveSettings(settings);
     expect(mock.data.settings).toEqual(settings);
@@ -45,6 +46,12 @@ describe('storage wrapper', () => {
   it('falls back per-field when stored settings are partial or corrupted', async () => {
     mock.data.settings = { aiMode: 'bogus', apiKey: 42, model: 'm', dailyAiLimit: -1, aiProvider: 'nope' };
     expect(await loadSettings()).toEqual({ ...DEFAULT_SETTINGS, model: 'm' });
+  });
+
+  it('defaults autoScroll to on and ignores non-boolean values', () => {
+    expect(DEFAULT_SETTINGS.autoScroll).toBe(true);
+    expect(parseSettings({ autoScroll: 'no' }).autoScroll).toBe(true);
+    expect(parseSettings({ autoScroll: false }).autoScroll).toBe(false);
   });
 
   it('treats non-object settings as empty', () => {

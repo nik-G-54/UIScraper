@@ -37,8 +37,14 @@ export function App() {
           ))}
         </nav>
       </header>
+      {/* Both views stay mounted so a running capture and unsaved edits survive tab switching. */}
       <main className="flex-1 p-4">
-        {view === 'analyze' ? <AnalyzeView activeTab={activeTab} /> : <SettingsView />}
+        <div hidden={view !== 'analyze'}>
+          <AnalyzeView activeTab={activeTab} />
+        </div>
+        <div hidden={view !== 'settings'}>
+          <SettingsView />
+        </div>
       </main>
     </div>
   );

@@ -2,8 +2,12 @@ export type ErrorCode =
   | 'RESTRICTED_PAGE'
   | 'NO_ACTIVE_TAB'
   | 'INJECTION_FAILED'
+  | 'EXTRACTION_FAILED'
   | 'INVALID_RESULT'
+  | 'NAVIGATED'
   | 'TIMEOUT'
+  | 'BUSY'
+  | 'DOWNLOAD_FAILED'
   | 'STORAGE_FAILED'
   | 'UNKNOWN';
 
