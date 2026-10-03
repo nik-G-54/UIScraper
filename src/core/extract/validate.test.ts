@@ -36,6 +36,15 @@ describe('validateCaptureResult', () => {
     rejects((r) => (r.stats.scroll = {}), /scroll/);
   });
 
+  it('requires a valid scroll target and container descriptor', () => {
+    rejects((r) => (r.stats.scroll.target = 'frame'), /scroll/);
+    rejects((r) => delete r.stats.scroll.target, /scroll/);
+    rejects((r) => (r.stats.scroll.container = 5), /scroll/);
+    const ok = JSON.parse(JSON.stringify(validResult())) as Record<string, any>;
+    ok.stats.scroll = { steps: 3, stoppedBy: 'bottom', target: 'container', container: 'main (depth 3)' };
+    expect(validateCaptureResult(ok).ok).toBe(true);
+  });
+
   it('rejects arrays that are not arrays', () => {
     rejects((r) => (r.nodes = {}), /array/);
     rejects((r) => (r.styleTable = null), /array/);

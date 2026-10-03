@@ -1,12 +1,12 @@
 import type { PipelineStep, ProgressStep } from '../../shared/types';
-import type { ScrollOutcome } from './scroll';
+import type { ScrollRunOutcome } from './scrollTarget';
 import type { StabilizeOutcome } from './stabilize';
 import { abortError } from './abort';
 
 export interface PipelineSteps<C> {
   /** Remember whatever must be restored later (e.g. the scroll position). */
   prepare(): void | Promise<void>;
-  scroll(): Promise<ScrollOutcome>;
+  scroll(): Promise<ScrollRunOutcome>;
   stabilize(): Promise<StabilizeOutcome>;
   /** Back to the top for consistent coordinates, then capture. */
   capture(): Promise<C>;
@@ -19,7 +19,7 @@ export interface PipelineSteps<C> {
 
 export interface PipelineOutcome<C> {
   capture: C;
-  scroll: ScrollOutcome;
+  scroll: ScrollRunOutcome;
   stabilize: StabilizeOutcome;
   durationsMs: Record<PipelineStep, number>;
   cleanupErrors: string[];
@@ -53,7 +53,7 @@ export async function runPipeline<C>(
     await timed('prepare', () => steps.prepare());
     checkAbort();
 
-    let scroll: ScrollOutcome = { steps: 0, stoppedBy: 'disabled' };
+    let scroll: ScrollRunOutcome = { steps: 0, stoppedBy: 'disabled', target: 'window', container: null };
     if (options.autoScroll) {
       onProgress('scrolling');
       scroll = await timed('scroll', () => steps.scroll());

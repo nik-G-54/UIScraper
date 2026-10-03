@@ -3,8 +3,9 @@ import type { DefaultStyleSource } from './defaults';
 import { runPipeline } from './pipeline';
 import { assembleResult, collectMeta } from './result';
 import type { MetaWindow } from './result';
-import { autoScroll } from './scroll';
 import type { ScrollEnv } from './scroll';
+import type { ScrollContainer } from './scrollContainer';
+import { lazyScroll } from './scrollTarget';
 import { waitForQuiet } from './stabilize';
 import type { QuietEnv } from './stabilize';
 import { STYLE_PROPERTIES } from './styleProps';
@@ -14,7 +15,10 @@ import type { CaptureEnv } from './walker';
 /** The page, as seen by the capture pipeline. `createBrowserEnv` provides the real one. */
 export interface RunEnv extends CaptureEnv {
   win: MetaWindow;
+  /** The window. */
   scroll: ScrollEnv;
+  /** The page's main inner scroll container, if it has one. */
+  findScrollContainer(minOverflowPx: number): ScrollContainer | null;
   quiet: QuietEnv;
   /** Jump (instantly) to an absolute scroll position. */
   scrollToPosition(x: number, y: number): void;
@@ -34,6 +38,8 @@ export async function runCapture(
   const { budgets, tuning } = options;
   let original = { x: 0, y: 0 };
   let defaults: DefaultStyleSource | null = null;
+  // Filled in as soon as an inner container is chosen, so cleanup can always put its scrollTop back.
+  let inner: { scroll: ScrollEnv; originalTop: number } | null = null;
   const walkerEnv: CaptureEnv = { ...env, signal };
 
   const outcome = await runPipeline(
@@ -41,10 +47,23 @@ export async function runCapture(
       prepare: () => {
         original = env.getScroll();
       },
-      scroll: () => autoScroll(env.scroll, budgets, tuning, signal),
+      scroll: () =>
+        lazyScroll(
+          {
+            window: env.scroll,
+            findContainer: () => env.findScrollContainer(tuning.scrollMinOverflowPx),
+            onContainer: (found) => {
+              inner = { scroll: found.scroll, originalTop: found.scroll.getScrollY() };
+            },
+          },
+          budgets,
+          tuning,
+          signal,
+        ),
       stabilize: () => waitForQuiet(env.quiet, budgets, tuning, signal),
       capture: async () => {
         env.scrollToPosition(0, 0);
+        inner?.scroll.scrollTo(0);
         await env.scroll.delay(tuning.scrollSettleMs);
         defaults = env.createDefaults(STYLE_PROPERTIES);
         const meta = collectMeta(env.doc, env.win);
@@ -53,6 +72,7 @@ export async function runCapture(
       },
       cleanups: [
         () => env.scrollToPosition(original.x, original.y),
+        () => inner?.scroll.scrollTo(inner.originalTop),
         () => defaults?.dispose(),
       ],
     },

@@ -19,6 +19,7 @@ export const CAPTURE_TUNING: CaptureTuning = {
   scrollStepDelayMs: 120,
   scrollBottomSettleMs: 400,
   scrollSettleMs: 150,
+  scrollMinOverflowPx: 100,
   scrollStepRatio: 0.8,
   chunkTimeMs: 12,
   overlayMinZIndex: 100,

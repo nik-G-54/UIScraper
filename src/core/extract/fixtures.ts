@@ -31,7 +31,7 @@ export function validResult(): CaptureResult {
       closedShadowHosts: 0,
       truncated: false,
       truncatedReasons: [],
-      scroll: { steps: 2, stoppedBy: 'bottom' },
+      scroll: { steps: 2, stoppedBy: 'bottom', target: 'window', container: null },
       stabilize: { settled: true },
       durationsMs: { prepare: 1, scroll: 2, stabilize: 3, capture: 4, cleanup: 5, total: 15 },
       resultBytes: 1234,

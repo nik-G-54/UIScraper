@@ -1,6 +1,5 @@
 import { STYLE_PROPERTIES } from './styleProps';
 import type {
-  BudgetName,
   CaptureTuning,
   CaptureWarning,
   CapturedNode,
@@ -11,6 +10,7 @@ import type {
   Rect,
   SkipReason,
   StyleRecord,
+  TruncationReason,
 } from '../../shared/types';
 import { abortError } from './abort';
 import { CaptureBudget } from './budget';
@@ -59,7 +59,7 @@ export interface DomCapture {
     closedShadowHosts: number;
   };
   /** Set when the walk stopped early because a budget ran out. */
-  truncated: Extract<BudgetName, 'maxNodes' | 'maxCaptureTimeMs'> | null;
+  truncated: Extract<TruncationReason, 'maxNodes' | 'maxCaptureTimeMs'> | null;
 }
 
 interface Frame {

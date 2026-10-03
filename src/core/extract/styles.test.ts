@@ -21,6 +21,13 @@ describe('STYLE_PROPERTIES whitelist', () => {
     for (const property of expected) expect(STYLE_PROPERTIES).toContain(property);
   });
 
+  it.each(['min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'box-sizing'])(
+    'captures the sizing property %s',
+    (property) => {
+      expect(STYLE_PROPERTIES).toContain(property);
+    },
+  );
+
   it('leaves out used-value width/height (the rect already has them)', () => {
     expect(STYLE_PROPERTIES).not.toContain('width');
     expect(STYLE_PROPERTIES).not.toContain('height');

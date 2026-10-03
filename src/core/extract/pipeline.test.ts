@@ -7,7 +7,7 @@ function harness(overrides: Partial<PipelineSteps<string>> = {}) {
   const log: string[] = [];
   const steps: PipelineSteps<string> = {
     prepare: () => void log.push('prepare'),
-    scroll: async () => (log.push('scroll'), { steps: 3, stoppedBy: 'bottom' }),
+    scroll: async () => (log.push('scroll'), { steps: 3, stoppedBy: 'bottom', target: 'window', container: null }),
     stabilize: async () => (log.push('stabilize'), { settled: true, waitedMs: 5 }),
     capture: async () => (log.push('capture'), 'captured'),
     cleanups: [() => void log.push('cleanup-1'), () => void log.push('cleanup-2')],
@@ -26,7 +26,7 @@ describe('runPipeline', () => {
     expect(log).toEqual(['prepare', 'scroll', 'stabilize', 'capture', 'cleanup-1', 'cleanup-2']);
     expect(progress).toEqual(['scrolling', 'stabilizing', 'capturing', 'cleaning-up']);
     expect(outcome.capture).toBe('captured');
-    expect(outcome.scroll).toEqual({ steps: 3, stoppedBy: 'bottom' });
+    expect(outcome.scroll).toEqual({ steps: 3, stoppedBy: 'bottom', target: 'window', container: null });
     expect(outcome.cleanupErrors).toEqual([]);
   });
 
@@ -35,7 +35,7 @@ describe('runPipeline', () => {
     const outcome = await run(false);
     expect(log).not.toContain('scroll');
     expect(progress).not.toContain('scrolling');
-    expect(outcome.scroll).toEqual({ steps: 0, stoppedBy: 'disabled' });
+    expect(outcome.scroll).toEqual({ steps: 0, stoppedBy: 'disabled', target: 'window', container: null });
   });
 
   it('measures every step', async () => {
@@ -43,7 +43,7 @@ describe('runPipeline', () => {
     const outcome = await runPipeline(
       {
         prepare: () => void (clock += 1),
-        scroll: async () => ((clock += 20), { steps: 1, stoppedBy: 'bottom' }),
+        scroll: async () => ((clock += 20), { steps: 1, stoppedBy: 'bottom', target: 'window', container: null }),
         stabilize: async () => ((clock += 30), { settled: true, waitedMs: 30 }),
         capture: async () => ((clock += 400), 'x'),
         cleanups: [() => void (clock += 5)],
@@ -111,7 +111,7 @@ describe('runPipeline', () => {
       const { log, run } = harness({
         scroll: async () => {
           controller.abort();
-          return { steps: 1, stoppedBy: 'aborted' };
+          return { steps: 1, stoppedBy: 'aborted', target: 'window', container: null };
         },
       });
       await expect(run(true, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });

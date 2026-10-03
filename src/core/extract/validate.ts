@@ -70,7 +70,9 @@ export function validateCaptureResult(raw: unknown): ValidationOutcome {
     return fail('stats.nodesSkipped is malformed');
   }
   if (
-    checkFields(stats.scroll, 'stats.scroll', ['stoppedBy'], ['steps']) ||
+    checkFields(stats.scroll, 'stats.scroll', ['stoppedBy', 'target'], ['steps']) ||
+    !['window', 'container'].includes((stats.scroll as Obj).target as string) ||
+    ((stats.scroll as Obj).container !== null && typeof (stats.scroll as Obj).container !== 'string') ||
     !isObj(stats.stabilize) ||
     typeof stats.stabilize.settled !== 'boolean'
   ) {

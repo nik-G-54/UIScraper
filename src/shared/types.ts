@@ -4,7 +4,7 @@
  */
 
 /** Bump when the shape of any extraction result changes. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // Settings and usage
@@ -90,6 +90,8 @@ export interface CaptureTuning {
   scrollBottomSettleMs: number;
   /** Pause after scrolling back to the top before capturing (ms). */
   scrollSettleMs: number;
+  /** A window/container counts as scrollable only if its content overflows by at least this much (px). */
+  scrollMinOverflowPx: number;
   /** Each scroll step moves this fraction of the viewport height. */
   scrollStepRatio: number;
   /** Yield to the event loop after this much continuous work (ms). */
@@ -106,9 +108,13 @@ export interface CaptureOptions {
   tuning: CaptureTuning;
 }
 
-export type BudgetName = keyof Pick<
+/**
+ * Budgets whose exhaustion means data may be missing. (Not settling within `maxStabilizeTimeMs`
+ * is only a warning: the capture is complete, it just may show a mid-animation state.)
+ */
+export type TruncationReason = keyof Pick<
   ExtractionBudgets,
-  'maxNodes' | 'maxCaptureTimeMs' | 'maxScrollHeightPx' | 'maxScrollTimeMs' | 'maxStabilizeTimeMs'
+  'maxNodes' | 'maxCaptureTimeMs' | 'maxScrollHeightPx' | 'maxScrollTimeMs'
 >;
 
 // ---------------------------------------------------------------------------
@@ -212,6 +218,8 @@ export type ScrollStopReason =
   | 'stuck'
   | 'aborted';
 
+export type ScrollTarget = 'window' | 'container';
+
 export interface CaptureStats {
   nodesVisited: number;
   nodesCaptured: number;
@@ -226,8 +234,15 @@ export interface CaptureStats {
   closedShadowHosts: number;
   truncated: boolean;
   /** Every budget that was hit; empty unless `truncated`. */
-  truncatedReasons: BudgetName[];
-  scroll: { steps: number; stoppedBy: ScrollStopReason };
+  truncatedReasons: TruncationReason[];
+  scroll: {
+    steps: number;
+    stoppedBy: ScrollStopReason;
+    /** What was scrolled for lazy content: the window, or an inner scroll container. */
+    target: ScrollTarget;
+    /** Short descriptor of the container, e.g. "main (depth 3)"; null for the window. */
+    container: string | null;
+  };
   stabilize: { settled: boolean };
   /** Time per pipeline step, plus the wall-clock total. */
   durationsMs: Record<PipelineStep, number> & { total: number };

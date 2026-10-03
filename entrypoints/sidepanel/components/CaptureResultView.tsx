@@ -2,16 +2,15 @@ import { useState } from 'react';
 import { EXTRACTION_BUDGETS } from '@/src/shared/config';
 import { toErrorMessage } from '@/src/shared/errors';
 import { formatBytes, formatDuration } from '@/src/shared/format';
-import type { BudgetName, CaptureResult } from '@/src/shared/types';
+import type { CaptureResult, TruncationReason } from '@/src/shared/types';
 import { downloadCaptureJson } from '../lib/download';
 import { Card, ErrorBanner, Notice } from './ui';
 
-const BUDGET_LABELS: Record<BudgetName, string> = {
+const TRUNCATION_LABELS: Record<TruncationReason, string> = {
   maxNodes: `node limit (${EXTRACTION_BUDGETS.maxNodes.toLocaleString()} nodes)`,
   maxCaptureTimeMs: `capture time limit (${EXTRACTION_BUDGETS.maxCaptureTimeMs / 1000} s)`,
   maxScrollHeightPx: `scroll height limit (${EXTRACTION_BUDGETS.maxScrollHeightPx.toLocaleString()} px)`,
   maxScrollTimeMs: `scroll time limit (${EXTRACTION_BUDGETS.maxScrollTimeMs / 1000} s)`,
-  maxStabilizeTimeMs: `stabilize time limit (${EXTRACTION_BUDGETS.maxStabilizeTimeMs / 1000} s; the page kept changing)`,
 };
 
 const SCROLL_LABELS = {
@@ -55,6 +54,8 @@ export function CaptureResultView({ result }: { result: CaptureResult }) {
     ['Document', `${meta.documentWidth.toLocaleString()} × ${meta.documentHeight.toLocaleString()} px`],
     ['Viewport', `${meta.viewportWidth} × ${meta.viewportHeight} px @${Number(meta.devicePixelRatio.toFixed(2))}x`],
     ['Lazy-load scroll', `${stats.scroll.steps} steps, ${SCROLL_LABELS[stats.scroll.stoppedBy]}`],
+    ['Scrolled', stats.scroll.target === 'container' ? `inner container: ${stats.scroll.container ?? 'unknown'}` : 'the window'],
+    ['Page stability', stats.stabilize.settled ? 'settled' : 'kept changing (see warnings)'],
     ['Result size', formatBytes(stats.resultBytes)],
   ];
   const durations = (['prepare', 'scroll', 'stabilize', 'capture', 'cleanup'] as const).map(
@@ -67,7 +68,7 @@ export function CaptureResultView({ result }: { result: CaptureResult }) {
         <Notice tone="warning">
           <p className="font-semibold">Capture was cut short</p>
           <p className="mt-1">
-            Hit the {stats.truncatedReasons.map((reason) => BUDGET_LABELS[reason]).join(' and the ')}. The snapshot
+            Hit the {stats.truncatedReasons.map((reason) => TRUNCATION_LABELS[reason]).join(' and the ')}. The snapshot
             may be incomplete.
           </p>
         </Notice>
@@ -106,15 +107,16 @@ export function CaptureResultView({ result }: { result: CaptureResult }) {
       </Card>
 
       {result.warnings.length > 0 && (
-        <Card title={`Warnings (${result.warnings.length})`}>
-          <ul className="list-disc space-y-1 pl-4">
+        <Notice tone="warning">
+          <p className="font-semibold">Warnings ({result.warnings.length})</p>
+          <ul className="mt-1 list-disc space-y-1 pl-4">
             {result.warnings.map((warning, index) => (
               <li key={`${warning.code}-${index}`} className="break-words">
                 {warning.message}
               </li>
             ))}
           </ul>
-        </Card>
+        </Notice>
       )}
 
       <button

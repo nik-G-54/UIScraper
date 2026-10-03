@@ -1,12 +1,12 @@
 import { SCHEMA_VERSION } from '../../shared/types';
 import type {
-  BudgetName,
   CaptureMeta,
   CaptureResult,
   CaptureWarning,
   PipelineStep,
+  TruncationReason,
 } from '../../shared/types';
-import type { ScrollOutcome } from './scroll';
+import type { ScrollRunOutcome } from './scrollTarget';
 import type { StabilizeOutcome } from './stabilize';
 import type { DomCapture } from './walker';
 
@@ -38,7 +38,7 @@ export function collectMeta(doc: Document, win: MetaWindow, now: Date = new Date
 export interface AssembleInput {
   meta: CaptureMeta;
   dom: DomCapture;
-  scroll: ScrollOutcome;
+  scroll: ScrollRunOutcome;
   stabilize: StabilizeOutcome;
   durationsMs: Record<PipelineStep, number>;
   extraWarnings?: CaptureWarning[];
@@ -48,14 +48,21 @@ export function assembleResult(input: AssembleInput): CaptureResult {
   const { meta, dom, scroll, stabilize, durationsMs } = input;
   const { counts } = dom;
 
-  const truncatedReasons: BudgetName[] = [];
+  // Truncated = data may be missing. Not settling is a warning instead (see below).
+  const truncatedReasons: TruncationReason[] = [];
   if (scroll.stoppedBy === 'maxScrollHeightPx' || scroll.stoppedBy === 'maxScrollTimeMs') {
     truncatedReasons.push(scroll.stoppedBy);
   }
-  if (!stabilize.settled) truncatedReasons.push('maxStabilizeTimeMs');
   if (dom.truncated) truncatedReasons.push(dom.truncated);
 
   const warnings: CaptureWarning[] = [...dom.warnings, ...(input.extraWarnings ?? [])];
+  if (!stabilize.settled) {
+    warnings.push({
+      code: 'page-not-stable',
+      message:
+        'Page kept changing (carousel or animation). Capture is complete but may show a mid-animation state.',
+    });
+  }
   if (scroll.stoppedBy === 'stuck') {
     warnings.push({
       code: 'scroll-stuck',
@@ -95,7 +102,7 @@ export function assembleResult(input: AssembleInput): CaptureResult {
       closedShadowHosts: counts.closedShadowHosts,
       truncated: truncatedReasons.length > 0,
       truncatedReasons,
-      scroll: { steps: scroll.steps, stoppedBy: scroll.stoppedBy },
+      scroll: { steps: scroll.steps, stoppedBy: scroll.stoppedBy, target: scroll.target, container: scroll.container },
       stabilize: { settled: stabilize.settled },
       durationsMs: { ...durationsMs, total },
       resultBytes: 0,

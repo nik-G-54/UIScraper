@@ -88,7 +88,16 @@ Data semantics worth knowing before consuming a capture:
   Closed shadow hosts are flagged opaque. iframes/canvas/video/embed/object are placeholders;
   inline `<svg>` is one node.
 - The only whitelist of captured properties is `src/core/extract/styleProps.ts`.
-- Any budget hit sets `stats.truncated` and names the budget in `stats.truncatedReasons`.
+- `stats.truncated` means **data may be missing**. Only `maxNodes`, `maxCaptureTimeMs`,
+  `maxScrollHeightPx` and `maxScrollTimeMs` set it (named in `stats.truncatedReasons`). A page that
+  never goes quiet (`maxStabilizeTimeMs`) is NOT truncated: the capture is complete, so it only adds
+  a `page-not-stable` warning.
+- Lazy-load scrolling targets the window when it can scroll by at least `scrollMinOverflowPx`. If it
+  cannot, or the window gets `stuck`, it scrolls the main inner scroll container instead (largest
+  visible element with overflow-y auto/scroll that clearly overflows; time budget is shared).
+  `stats.scroll.target` is `"window"` or `"container"`, with a tag + depth `container` descriptor
+  (never class names). Cleanup restores the window AND the container `scrollTop`, and the
+  container is put at the top for the capture, like the window.
 
 Bump `SCHEMA_VERSION` in `src/shared/types.ts` whenever the result shape changes.
 

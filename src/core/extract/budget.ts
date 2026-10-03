@@ -1,4 +1,4 @@
-import type { BudgetName, ExtractionBudgets } from '../../shared/types';
+import type { ExtractionBudgets, TruncationReason } from '../../shared/types';
 
 /** Tracks the node and time limits of the DOM walk. */
 export class CaptureBudget {
@@ -14,7 +14,7 @@ export class CaptureBudget {
   }
 
   /** The budget that has been used up, or null if capturing may continue. */
-  check(capturedNodes: number): Extract<BudgetName, 'maxNodes' | 'maxCaptureTimeMs'> | null {
+  check(capturedNodes: number): Extract<TruncationReason, 'maxNodes' | 'maxCaptureTimeMs'> | null {
     if (capturedNodes >= this.limits.maxNodes) return 'maxNodes';
     if (this.now() - this.startedAt >= this.limits.maxCaptureTimeMs) return 'maxCaptureTimeMs';
     return null;
