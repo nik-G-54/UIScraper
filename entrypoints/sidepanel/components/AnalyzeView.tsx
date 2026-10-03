@@ -1,29 +1,21 @@
 import { useState } from 'react';
 import { toErrorMessage } from '@/src/shared/errors';
 import { loadSettings } from '@/src/shared/storage';
-import { generateTokens } from '@/src/core/tokens';
-import type { ActiveTabInfo, AnalysisStep, CaptureResult, CssData, DesignTokens } from '@/src/shared/types';
+import type { ActiveTabInfo, AnalysisStep, CaptureWidthSetting } from '@/src/shared/types';
 import { getPageRestriction } from '@/src/shared/url';
 import type { ActiveTabState } from '../hooks/useActiveTab';
-import { captureTab } from '../lib/capture';
-import { collectCssData } from '../lib/css';
+import { generatePack } from '../lib/pack';
+import type { PackResult } from '../lib/pack';
 import { CaptureResultView } from './CaptureResultView';
+import { PackResultView } from './PackResultView';
 import { ProgressSteps } from './ProgressSteps';
 import { TokensView } from './TokensView';
 import { Card, ErrorBanner, Notice, Spinner } from './ui';
 
 type AnalysisState =
   | { status: 'idle' }
-  | { status: 'loading'; tabId: number; step: AnalysisStep; autoScroll: boolean }
-  | {
-      status: 'success';
-      tabId: number;
-      url: string;
-      result: CaptureResult;
-      css: CssData;
-      tokens: DesignTokens | null;
-      tokensError: string | null;
-    }
+  | { status: 'loading'; tabId: number; step: AnalysisStep; autoScroll: boolean; captureWidth: CaptureWidthSetting }
+  | { status: 'success'; tabId: number; url: string; pack: PackResult }
   | { status: 'error'; tabId: number; url: string; message: string };
 
 /** The URL the tab has right now (after a mid-capture navigation it differs from the start URL). */
@@ -63,9 +55,9 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
         : null;
 
   const analyze = async (target: ActiveTabInfo) => {
-    let autoScroll: boolean;
+    let settings: Awaited<ReturnType<typeof loadSettings>>;
     try {
-      autoScroll = (await loadSettings()).autoScroll;
+      settings = await loadSettings();
     } catch (error) {
       setAnalysis({
         status: 'error',
@@ -77,23 +69,16 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
     }
     const setStep = (step: AnalysisStep) =>
       setAnalysis((previous) => (previous.status === 'loading' ? { ...previous, step } : previous));
-    setAnalysis({ status: 'loading', tabId: target.id, step: 'preparing', autoScroll });
+    setAnalysis({
+      status: 'loading',
+      tabId: target.id,
+      step: settings.captureWidth === 'window' ? 'preparing' : 'emulating-width',
+      autoScroll: settings.autoScroll,
+      captureWidth: settings.captureWidth,
+    });
     try {
-      // The capture's own "done" is not the end any more: CSS and tokens follow.
-      const result = await captureTab(target, { autoScroll }, (step) => {
-        if (step !== 'done') setStep(step);
-      });
-      const css = await collectCssData(target, setStep);
-      setStep('generating-tokens');
-      await new Promise((resolve) => setTimeout(resolve, 0)); // let the step render before the synchronous work
-      let tokens: DesignTokens | null = null;
-      let tokensError: string | null = null;
-      try {
-        tokens = generateTokens(result, css);
-      } catch (error) {
-        tokensError = toErrorMessage(error);
-      }
-      setAnalysis({ status: 'success', tabId: target.id, url: target.url, result, css, tokens, tokensError });
+      const pack = await generatePack(target, settings, setStep);
+      setAnalysis({ status: 'success', tabId: target.id, url: target.url, pack });
     } catch (error) {
       setAnalysis({
         status: 'error',
@@ -124,7 +109,7 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
         disabled={restriction.restricted || busy}
         className="rounded-md bg-slate-900 px-3 py-2 font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
-        {busy ? 'Analyzing…' : 'Analyze page'}
+        {busy ? 'Generating…' : 'Generate design pack'}
       </button>
       {busy && !shown && (
         <Notice tone="warning">A capture is still running on another tab. It will finish on its own.</Notice>
@@ -132,15 +117,17 @@ export function AnalyzeView({ activeTab }: { activeTab: ActiveTabState }) {
 
       {shown?.status === 'loading' && (
         <Card title="Progress">
-          <ProgressSteps step={shown.step} autoScroll={shown.autoScroll} />
+          <ProgressSteps step={shown.step} autoScroll={shown.autoScroll} emulate={shown.captureWidth !== 'window'} />
         </Card>
       )}
-      {shown?.status === 'error' && <ErrorBanner title="Analysis failed" message={shown.message} />}
+      {shown?.status === 'error' && <ErrorBanner title="Design pack failed" message={shown.message} />}
       {shown?.status === 'success' && (
         <>
-          {shown.tokensError && <ErrorBanner title="Token generation failed" message={shown.tokensError} />}
-          {shown.tokens && <TokensView key={shown.tokens.source.capturedAt} tokens={shown.tokens} css={shown.css} />}
-          <CaptureResultView key={shown.result.meta.timestamp} result={shown.result} />
+          <PackResultView key={shown.pack.capture.meta.timestamp} pack={shown.pack} />
+          {!shown.pack.tokensFailed && (
+            <TokensView key={`tokens-${shown.pack.tokens.source.capturedAt}`} tokens={shown.pack.tokens} css={shown.pack.css} />
+          )}
+          <CaptureResultView key={shown.pack.capture.meta.timestamp} result={shown.pack.capture} />
         </>
       )}
     </div>

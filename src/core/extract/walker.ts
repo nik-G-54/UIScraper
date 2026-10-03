@@ -49,6 +49,8 @@ export interface DomCapture {
   styleTable: StyleRecord[];
   placeholders: CapturedPlaceholder[];
   warnings: CaptureWarning[];
+  /** Node id -> the live element. Page-side only: it is never serialized. */
+  elements: Map<number, Element>;
   counts: {
     visited: number;
     skipped: Record<SkipReason, number>;
@@ -111,6 +113,7 @@ export async function captureDom(
   const nodes: CapturedNode[] = [];
   const placeholders: CapturedPlaceholder[] = [];
   const warnings: CaptureWarning[] = [];
+  const elements = new Map<number, Element>();
   const styles = new StyleTable();
   const counts: DomCapture['counts'] = {
     visited: 0,
@@ -243,6 +246,7 @@ export async function captureDom(
     }
 
     nodes.push(node);
+    elements.set(id, el);
     if (frame.parentId !== null) (nodes[frame.parentId] as CapturedNode).childIds.push(id);
 
     if (tag === 'svg') {
@@ -294,6 +298,7 @@ export async function captureDom(
     styleTable: styles.toArray(),
     placeholders,
     warnings,
+    elements,
     counts,
     truncated,
   };

@@ -62,12 +62,12 @@ export function typeScaleNames(sizes: readonly ScaleValue[], basePx: number): { 
   return out;
 }
 
-interface Named<T> {
+export interface Named<T> {
   name: string;
   value: T;
 }
 
-function radii(tokens: DesignTokens): Named<string>[] {
+export function radiusNames(tokens: DesignTokens): Named<string>[] {
   const pill = tokens.radius.find((r) => r.px === 9999 || r.value === '50%');
   const steps = tokens.radius.filter((r) => r.px !== null && r.px < 9999);
   const names = stepNames(steps.length);
@@ -76,7 +76,7 @@ function radii(tokens: DesignTokens): Named<string>[] {
   return out;
 }
 
-function shadows(tokens: DesignTokens): Named<string>[] {
+export function shadowNames(tokens: DesignTokens): Named<string>[] {
   const names = stepNames(tokens.shadows.length);
   return tokens.shadows.map((s, i) => ({ name: names[i] ?? `step-${i + 1}`, value: s.value }));
 }
@@ -85,7 +85,7 @@ function screens(tokens: DesignTokens): Named<number>[] {
   return tokens.breakpoints.map((b, i) => ({ name: SCREEN_NAMES[i] ?? `bp-${b.px}`, value: b.px }));
 }
 
-function fonts(tokens: DesignTokens): Named<string>[] {
+export function fontNames(tokens: DesignTokens): Named<string>[] {
   const out: Named<string>[] = [];
   const seen = new Set<string>();
   for (const family of tokens.typography.families) {
@@ -114,7 +114,7 @@ export function generateThemeCss(tokens: DesignTokens): string {
   if (tokens.colors.length > 0) section('Colors');
   tokens.colors.forEach((color, i) => add(`color-${names[i]}`, color.hex, color.variable ? `was ${color.variable}` : undefined));
 
-  const fontList = fonts(tokens);
+  const fontList = fontNames(tokens);
   if (fontList.length > 0) section('Fonts');
   for (const font of fontList) add(`font-${font.name}`, font.value);
 
@@ -128,11 +128,11 @@ export function generateThemeCss(tokens: DesignTokens): string {
   if (baseUnit !== null) add('spacing', rem(baseUnit), `base unit ${baseUnit}px: p-2 = ${baseUnit * 2}px`);
   else for (const px of steps) add(`spacing-${px}px`, rem(px));
 
-  const radiusList = radii(tokens);
+  const radiusList = radiusNames(tokens);
   if (radiusList.length > 0) section('Radius');
   for (const r of radiusList) add(`radius-${r.name}`, r.value);
 
-  const shadowList = shadows(tokens);
+  const shadowList = shadowNames(tokens);
   if (shadowList.length > 0) section('Shadows');
   for (const s of shadowList) add(`shadow-${s.name}`, s.value);
 
@@ -167,7 +167,7 @@ export function generateTailwindV3Extend(tokens: DesignTokens): string {
   if (tokens.colors.length > 0) {
     extend.colors = Object.fromEntries(tokens.colors.map((c, i) => [names[i], c.hex]));
   }
-  const fontList = fonts(tokens);
+  const fontList = fontNames(tokens);
   if (fontList.length > 0) {
     extend.fontFamily = Object.fromEntries(fontList.map((f) => [f.name, f.value.split(/,\s*/).map((n) => n.replace(/^"|"$/g, ''))]));
   }
@@ -178,9 +178,9 @@ export function generateTailwindV3Extend(tokens: DesignTokens): string {
     // Keys follow Tailwind's own scale: key N is N * 0.25rem (4px).
     extend.spacing = Object.fromEntries(steps.map((px) => [String(px / 4), rem(px)]));
   }
-  const radiusList = radii(tokens);
+  const radiusList = radiusNames(tokens);
   if (radiusList.length > 0) extend.borderRadius = Object.fromEntries(radiusList.map((r) => [r.name, r.value]));
-  const shadowList = shadows(tokens);
+  const shadowList = shadowNames(tokens);
   if (shadowList.length > 0) extend.boxShadow = Object.fromEntries(shadowList.map((s) => [s.name, s.value]));
   const screenList = screens(tokens);
   if (screenList.length > 0) extend.screens = Object.fromEntries(screenList.map((s) => [s.name, `${s.value}px`]));

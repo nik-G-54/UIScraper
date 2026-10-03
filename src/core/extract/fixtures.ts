@@ -17,6 +17,8 @@ export function validResult(): CaptureResult {
       documentHeight: 2000,
       colorSchemeMeta: null,
       timestamp: '2026-01-01T00:00:00.000Z',
+      captureWidth: 1000,
+      emulated: false,
     },
     stats: {
       nodesVisited: 3,

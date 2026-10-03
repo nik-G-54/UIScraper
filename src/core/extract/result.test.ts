@@ -12,6 +12,7 @@ const dom = (overrides: Partial<DomCapture> = {}): DomCapture => ({
   styleTable: [],
   placeholders: [],
   warnings: [],
+  elements: new Map(),
   counts: {
     visited: 0,
     skipped: { 'ignored-tag': 0, 'display-none': 0, 'budget-truncated': 0 },
@@ -37,6 +38,7 @@ function assemble(overrides: Partial<AssembleInput> = {}) {
     meta: {
       url: 'https://example.com/', title: 't', lang: 'en', dir: 'ltr', viewportWidth: 1, viewportHeight: 1,
       devicePixelRatio: 1, documentWidth: 1, documentHeight: 1, colorSchemeMeta: null, timestamp: '2026-01-01T00:00:00.000Z',
+      captureWidth: 1, emulated: false,
     },
     dom: dom(),
     scroll: windowScroll(),

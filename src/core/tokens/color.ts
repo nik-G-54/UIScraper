@@ -1,6 +1,6 @@
 import { converter, differenceCiede2000, formatHex, formatHex8, parse } from 'culori';
 import { COLOR_ROLES } from '../../shared/types';
-import type { CaptureResult, ColorRole, ColorToken, ColorUse, CssVariable } from '../../shared/types';
+import type { CaptureResult, ColorRole, ColorToken, ColorUse, CssVariable, GradientToken } from '../../shared/types';
 import { TOKEN_TUNING } from '../../shared/config';
 import { splitTopLevel } from './util';
 
@@ -80,7 +80,7 @@ const newUsage = (hex: string): ColorUsage => ({
   hex,
   count: 0,
   area: 0,
-  uses: { text: 0, background: 0, border: 0, shadow: 0 },
+  uses: { text: 0, background: 0, border: 0, shadow: 0, gradient: 0 },
   interactive: 0,
 });
 
@@ -135,6 +135,23 @@ export function gatherColors(capture: CaptureResult): Map<string, ColorUsage> {
     for (const hex of shadows) record(hex, 'shadow');
   }
   return usages;
+}
+
+/**
+ * Add gradient stop colours as low-weight sources: each distinct stop counts once per node using
+ * the gradient and carries no area, so a hero gradient never outweighs real text/background colours.
+ */
+export function addGradientColors(usages: Map<string, ColorUsage>, gradients: readonly GradientToken[]): void {
+  for (const gradient of gradients) {
+    const stops = new Set<string>();
+    for (const stop of gradient.stops) if (stop.color !== 'transparent') stops.add(stop.color);
+    for (const hex of stops) {
+      let usage = usages.get(hex);
+      if (!usage) usages.set(hex, (usage = newUsage(hex)));
+      usage.count += gradient.count;
+      usage.uses.gradient += gradient.count;
+    }
+  }
 }
 
 /** Effective page background: body, else html, else the browser's white canvas. */
@@ -210,7 +227,7 @@ export function assignRoles(
   let bg = all.find((c) => c.members.includes(background.hex));
   bg ??= all.find((c) => colorDistance(c.hex, background.hex) <= TOKEN_TUNING.colorDeltaE);
   if (!bg) {
-    bg = { hex: background.hex, count: 0, area: 0, uses: { text: 0, background: 0, border: 0, shadow: 0 }, interactive: 0, members: [background.hex] };
+    bg = { hex: background.hex, count: 0, area: 0, uses: { text: 0, background: 0, border: 0, shadow: 0, gradient: 0 }, interactive: 0, members: [background.hex] };
     all.push(bg);
   }
   roles.set(bg, 'background');
@@ -310,8 +327,10 @@ export function variableColorMap(variables: readonly CssVariable[]): Map<string,
 export function buildColorTokens(
   capture: CaptureResult,
   variables: readonly CssVariable[],
+  gradients: readonly GradientToken[] = [],
 ): ColorToken[] {
   const usages = gatherColors(capture);
+  addGradientColors(usages, gradients);
   const { clusters, roles } = assignRoles(clusterColors(usages.values()), pageBackground(capture));
   const byVariable = variableColorMap(variables);
 

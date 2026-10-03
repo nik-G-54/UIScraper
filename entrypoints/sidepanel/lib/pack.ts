@@ -1,0 +1,218 @@
+import { buildAssetIndex } from '@/src/core/assets';
+import { addComponentStates, analyzeLayout, buildTree, stateSelectors } from '@/src/core/components';
+import { generateDesignMd } from '@/src/core/output';
+import { emptyTokens, generateThemeCss, generateTokens } from '@/src/core/tokens';
+import { ASSET_LIMITS, OUTPUT_LIMITS, SELECTOR_MATCH_LIMITS } from '@/src/shared/config';
+import { toErrorMessage } from '@/src/shared/errors';
+import { formatBytes } from '@/src/shared/format';
+import type {
+  ActiveTabInfo,
+  AnalysisStep,
+  AssetIndex,
+  CaptureResult,
+  CaptureWarning,
+  CssData,
+  DesignTokens,
+  LayoutAnalysis,
+  ScreenshotIndex,
+  Settings,
+} from '@/src/shared/types';
+import { buildFileName } from '@/src/shared/url';
+import { downloadAssets } from './assets';
+import { captureTab } from './capture';
+import { collectCssData } from './css';
+import { downloadBlob } from './download';
+import { DebuggerSession, readViewport } from './emulation';
+import { requestAssets, requestSelectorMatches } from './page';
+import { takeScreenshots } from './screenshot';
+import { buildZip } from './zip';
+import type { PackFile } from './zip';
+
+export interface PackResult {
+  capture: CaptureResult;
+  css: CssData;
+  tokens: DesignTokens;
+  tokensFailed: boolean;
+  layout: LayoutAnalysis;
+  assets: AssetIndex;
+  screens: ScreenshotIndex;
+  designMd: string;
+  warnings: CaptureWarning[];
+  zip: { name: string; blob: Blob; fileCount: number } | null;
+  /** Set when the zip was built but Chrome could not save it (the blob can be saved again). */
+  saveError: string | null;
+}
+
+const MIN_DESKTOP_WIDTH = 1024;
+
+/** Run `step`; on failure add a warning and return `fallback`. Nothing after the capture may stop the pack. */
+async function attempt<T>(warnings: CaptureWarning[], code: string, what: string, fallback: T, step: () => Promise<T> | T): Promise<T> {
+  try {
+    return await step();
+  } catch (error) {
+    warnings.push({ code, message: `${what}: ${toErrorMessage(error)}.` });
+    return fallback;
+  }
+}
+
+function dedupe(warnings: readonly CaptureWarning[]): CaptureWarning[] {
+  const seen = new Set<string>();
+  return warnings.filter((w) => !seen.has(w.message) && seen.add(w.message));
+}
+
+const noScreens = (): ScreenshotIndex => ({ fullPage: null, sections: [], warnings: [] });
+
+/**
+ * Generate the whole design pack for `tab`: capture (at the chosen width), CSS, tokens, layout and
+ * components, assets, screenshots, design.md, zip, download. Only a failed capture stops the run;
+ * every later failure becomes a warning and the zip is still produced. The viewport override and
+ * the debugger are always released, success or not.
+ */
+export async function generatePack(
+  tab: ActiveTabInfo,
+  settings: Pick<Settings, 'autoScroll' | 'captureWidth'>,
+  onStep: (step: AnalysisStep) => void,
+): Promise<PackResult> {
+  const warnings: CaptureWarning[] = [];
+  let session: DebuggerSession | null = null;
+  let emulated = false;
+  const releaseOnPageHide = () => void session?.release();
+  window.addEventListener('pagehide', releaseOnPageHide);
+
+  let capture: CaptureResult;
+  let css: CssData;
+  let tokens: DesignTokens;
+  let tokensFailed: boolean;
+  let layout: LayoutAnalysis = { sections: [], components: [], warnings: [] };
+  let rawAssets: Awaited<ReturnType<typeof requestAssets>> | null = null;
+  let screens: ScreenshotIndex = noScreens();
+  let screenFiles: PackFile[] = [];
+
+  try {
+    // 1. Width: force a desktop viewport through the debugger, or fall back to the current window.
+    if (settings.captureWidth !== 'window') {
+      onStep('emulating-width');
+      try {
+        const view = await readViewport(tab.id);
+        session = await DebuggerSession.attach(tab.id);
+        const { settled } = await session.emulateWidth(settings.captureWidth, view.height, view.devicePixelRatio);
+        emulated = true;
+        if (!settled) {
+          warnings.push({ code: 'emulation-unsettled', message: `The page did not report a ${settings.captureWidth}px viewport in time; the capture may use another width.` });
+        }
+      } catch (error) {
+        warnings.push({
+          code: 'emulation-failed',
+          message: `Could not set the capture width to ${settings.captureWidth}px (${toErrorMessage(error)}). Using the current window width instead; sites may show their mobile layout.`,
+        });
+        await session?.release();
+        session = null;
+      }
+    }
+
+    // 2. Capture (the only step whose failure ends the run).
+    capture = await captureTab(tab, settings, (step) => {
+      if (step !== 'done') onStep(step);
+    });
+    capture.meta.emulated = emulated;
+    if (capture.meta.captureWidth < MIN_DESKTOP_WIDTH) {
+      warnings.push({
+        code: 'narrow-capture',
+        message: `The page was captured at ${capture.meta.captureWidth}px wide, below ${MIN_DESKTOP_WIDTH}px, so it probably shows its mobile layout.`,
+      });
+    } else if (emulated && settings.captureWidth !== 'window' && capture.meta.captureWidth !== settings.captureWidth) {
+      warnings.push({ code: 'width-mismatch', message: `Asked for ${settings.captureWidth}px but the page rendered at ${capture.meta.captureWidth}px.` });
+    }
+
+    // 3. CSS and tokens.
+    css = await collectCssData(tab, (step) => onStep(step));
+    onStep('generating-tokens');
+    const generated = await attempt<DesignTokens | null>(warnings, 'tokens-failed', 'Design tokens could not be generated', null, () => generateTokens(capture, css));
+    tokensFailed = generated === null;
+    tokens = generated ?? emptyTokens(capture);
+
+    // 4. Layout, components and their states.
+    onStep('analyzing-layout');
+    layout = await attempt(warnings, 'layout-failed', 'Layout and component analysis failed', layout, () => analyzeLayout(capture, tokens));
+    const selectors = stateSelectors(css.stateRules);
+    if (layout.components.length > 0 && selectors.length > 0) {
+      layout = await attempt(warnings, 'states-failed', 'Hover/focus states could not be matched to components', layout, async () => {
+        const matches = await requestSelectorMatches(tab.id, selectors, SELECTOR_MATCH_LIMITS);
+        return addComponentStates(layout, capture, tokens, css.stateRules, matches);
+      });
+    }
+
+    // 5. Assets as the page sees them, then screenshots while the debugger is still attached.
+    onStep('collecting-assets');
+    rawAssets = await attempt(warnings, 'assets-failed', 'Images and SVGs could not be read from the page', null, () => requestAssets(tab.id, ASSET_LIMITS));
+
+    onStep('taking-screenshots');
+    if (!session) {
+      session = await attempt<DebuggerSession | null>(warnings, 'screenshots-skipped', 'Screenshots were skipped because the debugger could not be attached', null, () => DebuggerSession.attach(tab.id));
+    }
+    if (session) {
+      const shots = await takeScreenshots(session, layout.sections, capture.meta.captureWidth);
+      screens = shots.index;
+      screenFiles = shots.files;
+    }
+  } finally {
+    // Always: clear the viewport override and detach, even after an error, abort or closed tab.
+    window.removeEventListener('pagehide', releaseOnPageHide);
+    await session?.release();
+  }
+
+  // From here on the page is no longer needed.
+  onStep('downloading-assets');
+  const emptyAssets: AssetIndex = { images: [], icons: [], favicons: [], fonts: [], logo: null, warnings: [] };
+  let assets = await attempt(warnings, 'asset-index-failed', 'The asset index could not be built', emptyAssets, () =>
+    buildAssetIndex(buildTree(capture), layout.sections, rawAssets, css),
+  );
+  let assetFiles: PackFile[] = [];
+  const downloaded = await attempt(warnings, 'asset-download-failed', 'Downloading assets failed', null, () => downloadAssets(assets));
+  if (downloaded) {
+    assets = downloaded.index;
+    assetFiles = downloaded.files;
+    warnings.push(...downloaded.warnings);
+  }
+
+  onStep('writing-design-md');
+  const themeCss = await attempt(warnings, 'theme-failed', 'theme.css could not be generated', '/* theme.css could not be generated. */\n', () => generateThemeCss(tokens));
+  warnings.push(...capture.warnings, ...css.warnings, ...layout.warnings, ...assets.warnings, ...screens.warnings);
+  const allWarnings = dedupe(warnings);
+  const designMd = await attempt(
+    allWarnings,
+    'design-md-failed',
+    'design.md could not be generated',
+    `# Design pack\n\ndesign.md could not be generated. See tokens.json and capture.json.\n`,
+    () => generateDesignMd({ capture, tokens, themeCss, css, layout, assets, screens, warnings: allWarnings, maxChars: OUTPUT_LIMITS.maxDesignMdChars }),
+  );
+
+  onStep('zipping');
+  const files: PackFile[] = [
+    { path: 'design.md', data: designMd },
+    { path: 'tokens.json', data: `${JSON.stringify(tokens, null, 2)}\n` },
+    { path: 'theme.css', data: themeCss },
+  ];
+  const captureJson = JSON.stringify(capture);
+  if (captureJson.length > OUTPUT_LIMITS.maxCaptureJsonBytes) {
+    allWarnings.push({ code: 'capture-json-omitted', message: `capture.json is ${formatBytes(captureJson.length)}, over the ${formatBytes(OUTPUT_LIMITS.maxCaptureJsonBytes)} limit, so it was left out of the zip.` });
+  } else files.push({ path: 'capture.json', data: captureJson });
+  files.push(...assetFiles, ...screenFiles);
+
+  let zip: PackResult['zip'] = null;
+  let saveError: string | null = null;
+  try {
+    const blob = await buildZip(files);
+    zip = { name: buildFileName(capture.meta.url, 'zip'), blob, fileCount: files.length };
+    try {
+      await downloadBlob(blob, zip.name);
+    } catch (error) {
+      saveError = toErrorMessage(error);
+    }
+  } catch (error) {
+    allWarnings.push({ code: 'zip-failed', message: `The zip could not be built: ${toErrorMessage(error)}.` });
+  }
+
+  onStep('done');
+  return { capture, css, tokens, tokensFailed, layout, assets, screens, designMd, warnings: allWarnings, zip, saveError };
+}

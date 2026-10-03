@@ -1,4 +1,4 @@
-import type { CaptureTuning, CssLimits, ExtractionBudgets, Settings } from './types';
+import type { AssetLimits, CaptureTuning, CssLimits, ExtractionBudgets, SelectorMatchLimits, Settings } from './types';
 
 /**
  * Extraction budgets. Every extraction phase must read its limits from here
@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   model: '',
   dailyAiLimit: DEFAULT_DAILY_AI_LIMIT,
   autoScroll: true,
+  captureWidth: 1440,
 };
 
 /** Limits for CSS collection and parsing (CLAUDE.md rule 6). Hitting one adds a warning. */
@@ -82,10 +83,86 @@ export const TOKEN_TUNING = {
   maxFamilies: 6,
   maxRadii: 6,
   maxShadows: 6,
+  maxGradients: 12,
   maxBreakpoints: 6,
   maxCssVariablesInTokens: 300,
   /** Share of spacing values that must be multiples of a unit for it to be the base unit. */
   baseUnitCoverage: 0.75,
   /** Spacing at or below this is noise for base-unit detection (px). */
   baseUnitMinPx: 2,
+};
+
+/** Matching state-rule selectors against the captured elements. */
+export const SELECTOR_MATCH_LIMITS: SelectorMatchLimits = {
+  maxSelectors: 800,
+  maxMatchesPerSelector: 300,
+};
+
+/** Page-side asset collection (what the extractor reads and sends back). */
+export const ASSET_LIMITS: AssetLimits = {
+  maxImages: 400,
+  maxSvgs: 400,
+  maxSvgChars: 30_000,
+  maxDataUrlChars: 400_000,
+};
+
+/** What the side panel downloads for the zip. Hitting a cap skips the rest with a warning. */
+export const ASSET_DOWNLOAD = {
+  /** Images downloaded (largest on the page first). */
+  maxImages: 60,
+  maxImageBytes: 4_000_000,
+  maxTotalBytes: 30_000_000,
+  fetchTimeoutMs: 10_000,
+  concurrency: 6,
+  /** Images smaller than this on both axes (rendered, px) are tracking pixels and skipped. */
+  minDisplayPx: 4,
+  /** Inline SVG icons written into the zip. */
+  maxIcons: 120,
+  maxFavicons: 4,
+  /** Sanitized SVG markup longer than this is dropped (characters). */
+  maxSvgChars: 20_000,
+};
+
+/** Debugger-based viewport emulation and screenshots. */
+export const SCREENSHOT = {
+  /** A single Page.captureScreenshot clip is at most this tall (CSS px); taller pages are stitched. */
+  maxClipHeightPx: 12_000,
+  /** The document is captured down to this height only. */
+  maxDocHeightPx: 30_000,
+  /** Section crops are at most this tall (CSS px). */
+  maxCropHeightPx: 4_000,
+  maxSectionShots: 24,
+  jpegQuality: 85,
+  /** Wait for layout after the viewport override changes (ms). */
+  emulationSettleMs: 400,
+  emulationTimeoutMs: 4_000,
+};
+
+/** Layout and component heuristics (Phase 4). */
+export const LAYOUT_TUNING = {
+  maxSections: 24,
+  /** Wrapper chains (one big child) are followed at most this deep to find the page sections. */
+  maxWrapperDepth: 8,
+  /** Sections thinner than this (px) are ignored unless they are header/nav/footer. */
+  minSectionHeightPx: 40,
+  /** A non-semantic block is only split into its children when taller than this many viewport heights. */
+  expandBlockViewportRatio: 1.5,
+  /** Structural hash depth (levels below the root that count). */
+  hashDepth: 4,
+  minComponentCount: 2,
+  maxComponents: 30,
+  maxComponentSubtree: 200,
+  maxVariants: 4,
+  maxMembersKept: 200,
+  /** Members whose area differs from the group median by more than this factor are not the same component. */
+  areaRatio: 4,
+  maxStateDeclarations: 12,
+};
+
+/** Size caps for the generated pack. */
+export const OUTPUT_LIMITS = {
+  /** Upper bound for design.md (characters); the generator drops detail until it fits. */
+  maxDesignMdChars: 60_000,
+  /** capture.json is left out of the zip beyond this size (bytes). */
+  maxCaptureJsonBytes: 30_000_000,
 };

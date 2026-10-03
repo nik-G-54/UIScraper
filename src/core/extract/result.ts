@@ -32,6 +32,8 @@ export function collectMeta(doc: Document, win: MetaWindow, now: Date = new Date
     documentHeight: Math.max(root.scrollHeight, root.offsetHeight, body ? body.scrollHeight : 0),
     colorSchemeMeta: doc.querySelector('meta[name="color-scheme"]')?.getAttribute('content') ?? null,
     timestamp: now.toISOString(),
+    captureWidth: win.innerWidth,
+    emulated: false, // the side panel sets this when it forced the width
   };
 }
 

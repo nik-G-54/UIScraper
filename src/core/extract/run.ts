@@ -34,6 +34,8 @@ export async function runCapture(
   options: CaptureOptions,
   onProgress: (step: ProgressStep) => void,
   signal?: AbortSignal,
+  /** Receives the node id -> element map of this capture (kept page-side for selector matching). */
+  onElements?: (elements: Map<number, Element>) => void,
 ): Promise<CaptureResult> {
   const { budgets, tuning } = options;
   let original = { x: 0, y: 0 };
@@ -79,6 +81,7 @@ export async function runCapture(
     { autoScroll: options.autoScroll, onProgress, now: env.now, signal },
   );
 
+  onElements?.(outcome.capture.dom.elements);
   const extraWarnings: CaptureWarning[] = outcome.cleanupErrors.map((message) => ({
     code: 'cleanup-failed',
     message: `Cleanup problem: ${message}`,

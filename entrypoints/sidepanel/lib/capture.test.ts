@@ -62,7 +62,7 @@ function install(behaviour: Behaviour = {}): Harness {
           return behaviour.ping ? behaviour.ping() : { ok: true, kind: 'pong', schemaVersion: 2 };
         }
         if (request.type === 'designlens/abort') return { ok: true, kind: 'abort-ack' };
-        if (request.type === 'designlens/collect-css') return { ok: false, error: { code: 'EXTRACTION_FAILED', message: 'not used here' } };
+        if (request.type !== 'designlens/extract') return { ok: false, error: { code: 'EXTRACTION_FAILED', message: 'not used here' } };
         if (behaviour.extract) return behaviour.extract(request, h);
         for (const step of ['scrolling', 'stabilizing', 'capturing', 'cleaning-up'] as const) {
           emitProgress(request.requestId, step);

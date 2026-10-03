@@ -28,6 +28,7 @@ WXT + MV3 (Chrome), TypeScript (strict), React + Tailwind CSS v4 for the side pa
 - `entrypoints/extractor.ts` — unlisted script (bundled), injected on demand into the page
 - `entrypoints/sidepanel/` — React app (the orchestrator); `lib/capture.ts` runs a capture, `lib/css.ts` collects/downloads CSS, `lib/download.ts` saves files
 - `src/core/**` — pure analysis logic: `extract`, `css`, `tokens`, `components`, `assets`, `output`, `ai`
+- `entrypoints/sidepanel/lib/pack.ts` — the "Generate design pack" orchestrator; `emulation.ts` (chrome.debugger session), `screenshot.ts`, `assets.ts` (image downloads), `page.ts` (selector/asset messages), `zip.ts` (JSZip)
 - `src/core/css/` — `collect.ts` is page-side (bundled into the extractor, so it must not import css-tree); the rest is pure
 - `src/shared/` — `types.ts`, `config.ts` (budgets), `storage.ts`, `url.ts`, `errors.ts`, `usage.ts`
 
@@ -122,14 +123,46 @@ generating tokens). CSS collection never throws: any failure is a warning on `Cs
   in the style whitelist, so it is not a colour source.
 - Bump `TOKENS_SCHEMA_VERSION` when `DesignTokens` changes.
 
+## Layout, assets, design pack (Phases 4-6)
+
+"Generate design pack" (`lib/pack.ts`) runs: set capture width -> capture -> CSS -> tokens -> layout/components (+ states) ->
+collect assets -> screenshots -> release debugger -> download images -> design.md -> zip -> `chrome.downloads`. Only a failed
+capture stops the run; every later failure is a warning and the zip is still produced. `design.md` is complete without AI.
+
+- **Capture width**: Settings `captureWidth` (1440 default, 1280, 768, 390, `window`). The panel attaches `chrome.debugger`
+  (permission `debugger`), sets `Emulation.setDeviceMetricsOverride` (width, current height, real DPR), waits for the page to
+  report that width, then captures. `DebuggerSession.release()` ALWAYS runs (`finally`, `pagehide`): clears the override and
+  detaches, never throws. If attaching fails (DevTools open...) it falls back to the window width with a warning; a capture
+  under 1024px also warns. `meta.captureWidth` / `meta.emulated` record what happened. Chrome shows a "debugging" bar meanwhile.
+- **Screenshots**: same debugger session, `Page.captureScreenshot` with `captureBeyondViewport` (jpeg ~85, no scroll stitching),
+  clips of at most `SCREENSHOT.maxClipHeightPx` stitched on an `OffscreenCanvas`, then one crop per section
+  (`assets/screens/NN-<section>.jpg`, plus `full-page.jpg`). Without a debugger there are no screenshots (warning).
+- **Extractor keeps `Map<nodeId, Element>`** of the last capture (`runCapture`'s `onElements`). New messages:
+  `designlens/match-selectors` (selector -> node ids, for hover/focus/active/disabled) and `designlens/collect-assets`
+  (img currentSrc/size/alt, inline SVG markup, favicons).
+- **Components** (`src/core/components`): sections (`sections.ts`: follow single-child wrappers, expand `<main>`/tall blocks),
+  structural hash (`structure.ts`: tags + child shape to `hashDepth`, never class names; `look` hash adds style ids), groups of
+  2+ become components (`components.ts`, split by `classifyComponent`: button/link/nav-item/input/badge/card/list-item/generic),
+  variants = differing visual props, states from `states.ts`, Tailwind classes from `tailwind.ts` (names follow the generated
+  theme.css via `buildTailwindContext`; arbitrary values like `p-[13px]` otherwise). Node ids are pre-order, so a subtree is
+  the id range `[i, i + span[i])`.
+- **Assets** (`src/core/assets`): `buildAssetIndex` (images incl. CSS backgrounds, sanitized + hash-deduped SVG icons, favicons,
+  fonts from `@font-face`, logo = first img/svg in header/nav). Downloads happen in the panel with caps (`ASSET_DOWNLOAD`).
+- **Gradients**: `tokens/gradient.ts` parses `background-image` gradients (raw value + stops + usage count) into
+  `tokens.gradients`; their stop colours join the palette as low-weight `gradient` uses.
+- **design.md** (`src/core/output`): 8 fixed sections; re-rendered with shorter lists until it fits
+  `OUTPUT_LIMITS.maxDesignMdChars`. Zip: `design.md`, `tokens.json`, `theme.css`, `capture.json`, `assets/{images,icons,screens}/`,
+  named `designlens-<host>-<timestamp>.zip`.
+- Bump `SCHEMA_VERSION` (now 4) / `TOKENS_SCHEMA_VERSION` (now 2) when those shapes change.
+
 ## Roadmap
 
 - 0 Setup
 - 1 Capture engine
-- **2 CSS parser — current**
-- **3 Design tokens — current**
-- 4 Layout + components
-- 5 Assets + screenshots + zip
-- 6 Rule-based design.md
+- 2 CSS parser
+- 3 Design tokens
+- **4 Layout + components — current**
+- **5 Assets + screenshots + zip — current**
+- **6 Rule-based design.md — current**
 - 7 AI layer (Gemini default, provider-pluggable)
 - 8 Polish

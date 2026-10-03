@@ -4,7 +4,7 @@
  */
 
 /** Bump when the shape of any extraction result changes. */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Settings and usage
@@ -17,6 +17,10 @@ export type AiMode = (typeof AI_MODES)[number];
 export const AI_PROVIDERS = ['gemini'] as const;
 export type AiProviderId = (typeof AI_PROVIDERS)[number];
 
+/** Widths the capture can render the page at; `window` keeps the current (side-panel-shrunk) viewport. */
+export const CAPTURE_WIDTH_PRESETS = [1440, 1280, 768, 390] as const;
+export type CaptureWidthSetting = (typeof CAPTURE_WIDTH_PRESETS)[number] | 'window';
+
 export interface Settings {
   aiMode: AiMode;
   aiProvider: AiProviderId;
@@ -28,6 +32,8 @@ export interface Settings {
   dailyAiLimit: number;
   /** Scroll the page during capture so lazy-loaded content renders. */
   autoScroll: boolean;
+  /** Viewport width the page is rendered at while capturing (via the debugger emulation override). */
+  captureWidth: CaptureWidthSetting;
 }
 
 /** Persisted daily AI request counter. `date` is the local date as YYYY-MM-DD. */
@@ -206,6 +212,10 @@ export interface CaptureMeta {
   colorSchemeMeta: string | null;
   /** ISO 8601 */
   timestamp: string;
+  /** Width (CSS px) the page was rendered at: the viewport width during the capture. */
+  captureWidth: number;
+  /** True when the side panel forced `captureWidth` with a device-metrics override. */
+  emulated: boolean;
 }
 
 export type PipelineStep = 'prepare' | 'scroll' | 'stabilize' | 'capture' | 'cleanup';
@@ -270,6 +280,8 @@ export type ExtractorRequest =
   | { type: 'designlens/ping' }
   | { type: 'designlens/extract'; requestId: string; options: CaptureOptions }
   | { type: 'designlens/collect-css'; limits: CssLimits }
+  | { type: 'designlens/match-selectors'; selectors: string[]; limits: SelectorMatchLimits }
+  | { type: 'designlens/collect-assets'; limits: AssetLimits }
   | { type: 'designlens/abort'; requestId: string };
 
 export type ExtractorErrorCode = 'ABORTED' | 'BUSY' | 'EXTRACTION_FAILED';
@@ -278,6 +290,8 @@ export type ExtractorResponse =
   | { ok: true; kind: 'pong'; schemaVersion: number }
   | { ok: true; kind: 'result'; result: CaptureResult }
   | { ok: true; kind: 'css'; css: RawCssCollection }
+  | { ok: true; kind: 'selector-matches'; matches: SelectorMatches }
+  | { ok: true; kind: 'assets'; assets: RawAssetCollection }
   | { ok: true; kind: 'abort-ack' }
   | { ok: false; error: { code: ExtractorErrorCode; message: string } };
 
@@ -290,10 +304,17 @@ export interface ExtractorProgressMessage {
 
 /** Everything the side panel shows while analyzing: the capture steps, then CSS and tokens. */
 export type AnalysisStep =
+  | 'emulating-width'
   | Exclude<ProgressStep, 'done'>
   | 'collecting-css'
   | 'parsing-css'
   | 'generating-tokens'
+  | 'analyzing-layout'
+  | 'collecting-assets'
+  | 'downloading-assets'
+  | 'taking-screenshots'
+  | 'writing-design-md'
+  | 'zipping'
   | 'done';
 
 // ---------------------------------------------------------------------------
@@ -446,7 +467,7 @@ export interface CssData {
 // ---------------------------------------------------------------------------
 
 /** Bump when the shape of `DesignTokens` changes. */
-export const TOKENS_SCHEMA_VERSION = 1;
+export const TOKENS_SCHEMA_VERSION = 2;
 
 export const COLOR_ROLES = [
   'background',
@@ -459,7 +480,7 @@ export const COLOR_ROLES = [
 ] as const;
 export type ColorRole = (typeof COLOR_ROLES)[number];
 
-export type ColorUse = 'text' | 'background' | 'border' | 'shadow';
+export type ColorUse = 'text' | 'background' | 'border' | 'shadow' | 'gradient';
 
 export interface ColorToken {
   /** `#rrggbb`, or `#rrggbbaa` when translucent. */
@@ -552,11 +573,29 @@ export interface BreakpointToken {
   count: number;
 }
 
+export interface GradientStop {
+  /** `#rrggbb`/`#rrggbbaa`, or `transparent`. */
+  color: string;
+  /** As written, e.g. `40%`; null when the stop has no position. */
+  position: string | null;
+}
+
+export interface GradientToken {
+  /** The raw CSS value of one gradient layer. */
+  value: string;
+  kind: 'linear' | 'radial' | 'conic';
+  repeating: boolean;
+  stops: GradientStop[];
+  /** Nodes that use it. */
+  count: number;
+}
+
 export interface DesignTokens {
   schemaVersion: typeof TOKENS_SCHEMA_VERSION;
   source: { url: string; title: string; capturedAt: string };
   /** Most important first. */
   colors: ColorToken[];
+  gradients: GradientToken[];
   typography: TypographyTokens;
   spacing: SpacingTokens;
   radius: RadiusToken[];
@@ -566,4 +605,223 @@ export interface DesignTokens {
   frameworks: FrameworkHint[];
   cssVariables: { default: Record<string, string>; dark: Record<string, string> };
   darkMode: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Layout and components (Phase 4)
+// ---------------------------------------------------------------------------
+
+/** Limits for matching CSS selectors against the captured elements (values live in src/shared/config.ts). */
+export interface SelectorMatchLimits {
+  maxSelectors: number;
+  /** Matched node ids kept per selector. */
+  maxMatchesPerSelector: number;
+}
+
+/** Selector -> ids of the captured nodes it matches (selectors that match nothing are left out). */
+export type SelectorMatches = Record<string, number[]>;
+
+export interface LayoutSummary {
+  display: string;
+  flexDirection: string | null;
+  /** Number of grid tracks (grid), or children side by side (flex row); 1 for stacked content. */
+  columns: number;
+  gap: string | null;
+  /** Content width limit in px (max-width, or the centered container's width); null when full width. */
+  containerMaxWidth: number | null;
+  /** How the content block sits in the page. */
+  alignment: 'left' | 'center' | 'right' | 'full';
+  paddingY: string | null;
+}
+
+export interface PageSection {
+  index: number;
+  nodeId: number;
+  tag: string;
+  /** Unique, readable: `header`, `hero`, `section-3`, `footer`. */
+  name: string;
+  rect: Rect;
+  background: {
+    hex: string | null;
+    /** Name in theme.css (`primary`, `palette-2`) when the colour is a token. */
+    token: string | null;
+    gradient: string | null;
+  };
+  layout: LayoutSummary;
+  headings: string[];
+  /** Tailwind classes of the section element itself. */
+  tailwind: string;
+}
+
+export const COMPONENT_KINDS = ['button', 'link', 'nav-item', 'input', 'badge', 'card', 'list-item', 'generic'] as const;
+export type ComponentKind = (typeof COMPONENT_KINDS)[number];
+
+export interface ComponentVariant {
+  count: number;
+  nodeId: number;
+  /** Visual properties that differ from the base look. */
+  diff: Record<string, string>;
+  tailwind: string;
+}
+
+export interface ComponentState {
+  state: CssState;
+  declarations: Record<string, string>;
+  tailwind: string;
+  /** True when the rule styles a descendant of the component rather than the component itself. */
+  onDescendant: boolean;
+}
+
+export interface ComponentGroup {
+  /** Unique name, e.g. `card`, `button`, `button-2`. */
+  name: string;
+  kind: ComponentKind;
+  count: number;
+  /** The most typical member. */
+  nodeId: number;
+  tag: string;
+  size: { width: number; height: number };
+  /** Short outline of the structure, e.g. `div[img, h3, p]`. */
+  structure: string;
+  text: string | null;
+  tailwind: string;
+  variants: ComponentVariant[];
+  states: ComponentState[];
+  /** Section where most members live. */
+  section: string | null;
+  /** Member node ids (capped). */
+  members: number[];
+}
+
+export interface LayoutAnalysis {
+  sections: PageSection[];
+  components: ComponentGroup[];
+  warnings: CaptureWarning[];
+}
+
+// ---------------------------------------------------------------------------
+// Assets (Phase 5)
+// ---------------------------------------------------------------------------
+
+export interface AssetLimits {
+  maxImages: number;
+  maxSvgs: number;
+  /** Longest inline <svg> markup read from the page (characters). */
+  maxSvgChars: number;
+  /** Longest data: URL read from the page (characters). */
+  maxDataUrlChars: number;
+}
+
+export interface RawImage {
+  nodeId: number;
+  /** currentSrc, else src, else data-src (absolute). */
+  url: string;
+  srcset: string | null;
+  naturalWidth: number;
+  naturalHeight: number;
+  alt: string | null;
+  inPicture: boolean;
+}
+
+export interface RawSvg {
+  nodeId: number;
+  markup: string;
+  width: number;
+  height: number;
+  label: string | null;
+}
+
+export interface RawFavicon {
+  rel: string;
+  href: string;
+  sizes: string | null;
+}
+
+/** Reply to `designlens/collect-assets`. */
+export interface RawAssetCollection {
+  schemaVersion: typeof SCHEMA_VERSION;
+  images: RawImage[];
+  svgs: RawSvg[];
+  favicons: RawFavicon[];
+  warnings: CaptureWarning[];
+}
+
+export interface ImageAsset {
+  id: string;
+  /** Absolute URL (or a shortened `data:` URL). */
+  url: string;
+  kind: 'img' | 'css-background';
+  nodeIds: number[];
+  /** Times it appears on the page. */
+  count: number;
+  naturalWidth: number | null;
+  naturalHeight: number | null;
+  /** Rendered size of its first use. */
+  displayWidth: number;
+  displayHeight: number;
+  alt: string | null;
+  section: string | null;
+  /** Path inside the zip once downloaded, else null. */
+  path: string | null;
+  bytes: number | null;
+  /** Why it was not downloaded. */
+  skipped: string | null;
+}
+
+export interface IconAsset {
+  id: string;
+  /** Hash of the sanitized markup. */
+  hash: string;
+  /** Sanitized, size-capped markup. */
+  markup: string;
+  width: number;
+  height: number;
+  label: string | null;
+  count: number;
+  sections: string[];
+  path: string | null;
+}
+
+export interface FaviconAsset {
+  rel: string;
+  url: string;
+  sizes: string | null;
+  path: string | null;
+}
+
+export interface FontAsset {
+  family: string;
+  weights: string[];
+  styles: string[];
+  display: string | null;
+  sources: CssFontFaceSource[];
+}
+
+export interface LogoAsset {
+  kind: 'img' | 'svg';
+  /** `ImageAsset.id` or `IconAsset.id`. */
+  assetId: string;
+  section: string | null;
+}
+
+export interface AssetIndex {
+  images: ImageAsset[];
+  icons: IconAsset[];
+  favicons: FaviconAsset[];
+  fonts: FontAsset[];
+  logo: LogoAsset | null;
+  warnings: CaptureWarning[];
+}
+
+/** One cropped screenshot, ready to be zipped. */
+export interface ScreenshotFile {
+  /** Section name, or `full-page`. */
+  name: string;
+  path: string;
+}
+
+export interface ScreenshotIndex {
+  fullPage: ScreenshotFile | null;
+  sections: ScreenshotFile[];
+  warnings: CaptureWarning[];
 }

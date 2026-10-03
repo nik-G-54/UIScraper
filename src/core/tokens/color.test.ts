@@ -27,7 +27,7 @@ describe('clusterColors', () => {
     hex,
     count,
     area: 0,
-    uses: { text: count, background: 0, border: 0, shadow: 0 },
+    uses: { text: count, background: 0, border: 0, shadow: 0, gradient: 0 },
     interactive: 0,
   });
 

@@ -11,7 +11,7 @@ const extract = (requestId = 'r1') => ({ type: 'designlens/extract', requestId, 
 
 function setup(run = vi.fn(async () => fakeResult)) {
   const sendProgress = vi.fn();
-  const listener = createExtractorListener({ run, sendProgress, extensionId: ME, collectCss: vi.fn() });
+  const listener = createExtractorListener({ run, sendProgress, extensionId: ME, collectCss: vi.fn(), matchSelectors: vi.fn(), collectAssets: vi.fn() });
   const call = (message: unknown, sender: { id?: string } = { id: ME }) => {
     const responses: ExtractorResponse[] = [];
     const asyncResponse = listener(message, sender, (r) => responses.push(r));
@@ -111,7 +111,7 @@ describe('extractor listener', () => {
 
   it('accepts a new request sent straight from the response callback (no BUSY race)', async () => {
     const run = vi.fn(async () => fakeResult);
-    const listener = createExtractorListener({ run, sendProgress: vi.fn(), extensionId: ME, collectCss: vi.fn() });
+    const listener = createExtractorListener({ run, sendProgress: vi.fn(), extensionId: ME, collectCss: vi.fn(), matchSelectors: vi.fn(), collectAssets: vi.fn() });
     const second: ExtractorResponse[] = [];
     await new Promise<void>((resolve) => {
       listener(extract('r1'), { id: ME }, () => {
@@ -127,7 +127,7 @@ describe('extractor listener', () => {
 
   it('survives a closed channel when responding', async () => {
     const run = vi.fn(async () => fakeResult);
-    const listener = createExtractorListener({ run, sendProgress: vi.fn(), extensionId: ME, collectCss: vi.fn() });
+    const listener = createExtractorListener({ run, sendProgress: vi.fn(), extensionId: ME, collectCss: vi.fn(), matchSelectors: vi.fn(), collectAssets: vi.fn() });
     listener(extract(), { id: ME }, () => {
       throw new Error('channel closed');
     });

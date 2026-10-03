@@ -1,2 +1,3 @@
-// Placeholder: implemented in a later phase. See the roadmap in CLAUDE.md.
-export {};
+// Phase 6: rule-based design.md. Pure functions only.
+export { generateDesignMd } from './designMd';
+export type { DesignMdInput } from './designMd';

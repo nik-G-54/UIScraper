@@ -1,5 +1,6 @@
 import { SCHEMA_VERSION } from '../../shared/types';
 import type {
+  AssetLimits,
   CaptureOptions,
   CaptureResult,
   CssLimits,
@@ -7,7 +8,10 @@ import type {
   ExtractorRequest,
   ExtractorResponse,
   ProgressStep,
+  RawAssetCollection,
   RawCssCollection,
+  SelectorMatches,
+  SelectorMatchLimits,
 } from '../../shared/types';
 import { isAbortError } from './abort';
 
@@ -19,6 +23,10 @@ export interface ExtractorDeps {
   ): Promise<CaptureResult>;
   /** Read the page's stylesheets (synchronous: it only touches the DOM). */
   collectCss(limits: CssLimits): RawCssCollection;
+  /** Which nodes of the LAST capture each selector matches. */
+  matchSelectors(selectors: string[], limits: SelectorMatchLimits): SelectorMatches;
+  /** Images, inline SVGs and favicons of the LAST capture's nodes. */
+  collectAssets(limits: AssetLimits): RawAssetCollection;
   sendProgress(message: ExtractorProgressMessage): void;
   /** `chrome.runtime.id`; messages from other extensions are ignored. */
   extensionId: string | undefined;
@@ -29,6 +37,10 @@ export type ExtractorListener = (
   sender: { id?: string },
   sendResponse: (response: ExtractorResponse) => void,
 ) => boolean;
+
+function errorText(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -42,7 +54,14 @@ export function isExtractorRequest(message: unknown): message is ExtractorReques
     case 'designlens/abort':
       return typeof message.requestId === 'string';
     case 'designlens/collect-css':
+    case 'designlens/collect-assets':
       return isObject(message.limits);
+    case 'designlens/match-selectors':
+      return (
+        isObject(message.limits) &&
+        Array.isArray(message.selectors) &&
+        message.selectors.every((selector) => typeof selector === 'string')
+      );
     case 'designlens/extract':
       return (
         typeof message.requestId === 'string' &&
@@ -92,6 +111,22 @@ export function createExtractorListener(deps: ExtractorDeps): ExtractorListener 
               message: error instanceof Error && error.message ? error.message : 'Could not read the stylesheets.',
             },
           });
+        }
+        return false;
+
+      case 'designlens/match-selectors':
+        try {
+          respond({ ok: true, kind: 'selector-matches', matches: deps.matchSelectors(message.selectors, message.limits) });
+        } catch (error) {
+          respond({ ok: false, error: { code: 'EXTRACTION_FAILED', message: errorText(error, 'Could not match the selectors.') } });
+        }
+        return false;
+
+      case 'designlens/collect-assets':
+        try {
+          respond({ ok: true, kind: 'assets', assets: deps.collectAssets(message.limits) });
+        } catch (error) {
+          respond({ ok: false, error: { code: 'EXTRACTION_FAILED', message: errorText(error, 'Could not read the page assets.') } });
         }
         return false;
 

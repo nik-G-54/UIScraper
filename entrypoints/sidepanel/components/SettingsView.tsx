@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { toErrorMessage } from '@/src/shared/errors';
-import { AI_MODES, AI_PROVIDERS } from '@/src/shared/types';
-import type { AiMode, AiProviderId, Settings } from '@/src/shared/types';
+import { AI_MODES, AI_PROVIDERS, CAPTURE_WIDTH_PRESETS } from '@/src/shared/types';
+import type { AiMode, AiProviderId, CaptureWidthSetting, Settings } from '@/src/shared/types';
 import { parseDailyLimit } from '@/src/shared/usage';
 import { useAiUsageToday } from '../hooks/useAiUsage';
 import { useSettings } from '../hooks/useSettings';
@@ -18,6 +18,17 @@ const AI_PROVIDER_LABELS: Record<AiProviderId, string> = {
   gemini: 'Gemini',
 };
 
+const parseWidth = (value: string): CaptureWidthSetting =>
+  value === 'window' ? 'window' : (CAPTURE_WIDTH_PRESETS.find((preset) => String(preset) === value) ?? 1440);
+
+const WIDTH_LABELS: Record<string, string> = {
+  '1440': '1440 px (desktop, default)',
+  '1280': '1280 px (small desktop)',
+  '768': '768 px (tablet)',
+  '390': '390 px (phone)',
+  window: 'Current window',
+};
+
 interface Draft {
   aiMode: AiMode;
   aiProvider: AiProviderId;
@@ -25,6 +36,7 @@ interface Draft {
   model: string;
   dailyAiLimit: string;
   autoScroll: boolean;
+  captureWidth: CaptureWidthSetting;
 }
 
 const toDraft = (s: Settings): Draft => ({ ...s, dailyAiLimit: String(s.dailyAiLimit) });
@@ -54,7 +66,8 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
     draft.apiKey !== saved.apiKey ||
     draft.model !== saved.model ||
     draft.dailyAiLimit !== String(saved.dailyAiLimit) ||
-    draft.autoScroll !== saved.autoScroll;
+    draft.autoScroll !== saved.autoScroll ||
+    draft.captureWidth !== saved.captureWidth;
 
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }));
@@ -74,6 +87,7 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
         model: draft.model.trim(),
         dailyAiLimit: parsedLimit,
         autoScroll: draft.autoScroll,
+        captureWidth: draft.captureWidth,
       });
       setSaved(next);
       setDraft(toDraft(next));
@@ -91,6 +105,25 @@ function SettingsForm({ initial, save }: { initial: Settings; save: (next: Setti
   return (
     <form onSubmit={(event) => void onSubmit(event)} className="flex flex-col gap-3">
       <Card title="Capture">
+        <label className="mb-3 flex flex-col gap-1">
+          <span className="font-medium">Capture width</span>
+          <select
+            value={String(draft.captureWidth)}
+            onChange={(e) => update('captureWidth', parseWidth(e.target.value))}
+            className={inputClass}
+          >
+            {[...CAPTURE_WIDTH_PRESETS.map(String), 'window'].map((value) => (
+              <option key={value} value={value}>
+                {WIDTH_LABELS[value]}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-500">
+            The side panel narrows the page, so sites would show their mobile layout. DesignLens renders the page at
+            this width while capturing (using Chrome’s debugger, which shows a “debugging this browser” bar) and always
+            restores it. If DevTools already holds the tab it falls back to the window width with a warning.
+          </span>
+        </label>
         <label className="flex cursor-pointer items-start gap-2">
           <input
             type="checkbox"

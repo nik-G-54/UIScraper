@@ -1,7 +1,7 @@
 import { DEFAULT_SETTINGS } from './config';
 import { DesignLensError } from './errors';
-import { AI_MODES, AI_PROVIDERS } from './types';
-import type { AiUsageRecord, Settings } from './types';
+import { AI_MODES, AI_PROVIDERS, CAPTURE_WIDTH_PRESETS } from './types';
+import type { AiUsageRecord, CaptureWidthSetting, Settings } from './types';
 
 /**
  * Typed wrapper around chrome.storage.local. Every key has a parser, so reads always
@@ -22,6 +22,11 @@ function oneOf<T extends string>(allowed: readonly T[], value: unknown, fallback
   return allowed.find((candidate) => candidate === value) ?? fallback;
 }
 
+function parseCaptureWidth(value: unknown): CaptureWidthSetting {
+  if (value === 'window') return 'window';
+  return CAPTURE_WIDTH_PRESETS.find((preset) => preset === value) ?? DEFAULT_SETTINGS.captureWidth;
+}
+
 export function parseSettings(raw: unknown): Settings {
   const source = isRecord(raw) ? raw : {};
   const limit = source.dailyAiLimit;
@@ -35,6 +40,7 @@ export function parseSettings(raw: unknown): Settings {
         ? limit
         : DEFAULT_SETTINGS.dailyAiLimit,
     autoScroll: typeof source.autoScroll === 'boolean' ? source.autoScroll : DEFAULT_SETTINGS.autoScroll,
+    captureWidth: parseCaptureWidth(source.captureWidth),
   };
 }
 

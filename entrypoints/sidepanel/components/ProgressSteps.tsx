@@ -1,6 +1,7 @@
 import type { AnalysisStep } from '@/src/shared/types';
 
 const STEPS: { id: AnalysisStep; label: string }[] = [
+  { id: 'emulating-width', label: 'Setting capture width' },
   { id: 'preparing', label: 'Preparing' },
   { id: 'scrolling', label: 'Scrolling' },
   { id: 'stabilizing', label: 'Stabilizing' },
@@ -9,15 +10,30 @@ const STEPS: { id: AnalysisStep; label: string }[] = [
   { id: 'collecting-css', label: 'Collecting CSS' },
   { id: 'parsing-css', label: 'Parsing CSS' },
   { id: 'generating-tokens', label: 'Generating tokens' },
+  { id: 'analyzing-layout', label: 'Layout and components' },
+  { id: 'collecting-assets', label: 'Collecting assets' },
+  { id: 'taking-screenshots', label: 'Screenshots' },
+  { id: 'downloading-assets', label: 'Downloading images' },
+  { id: 'writing-design-md', label: 'Writing design.md' },
+  { id: 'zipping', label: 'Building the zip' },
   { id: 'done', label: 'Done' },
 ];
 
-export function ProgressSteps({ step, autoScroll }: { step: AnalysisStep; autoScroll: boolean }) {
+export function ProgressSteps({
+  step,
+  autoScroll,
+  emulate,
+}: {
+  step: AnalysisStep;
+  autoScroll: boolean;
+  /** False when the capture width is "Current window": no width override step. */
+  emulate: boolean;
+}) {
   const currentIndex = STEPS.findIndex((s) => s.id === step);
   return (
-    <ol className="flex flex-col gap-1.5" aria-label="Analysis progress">
+    <ol className="flex flex-col gap-1.5" aria-label="Progress">
       {STEPS.map((s, index) => {
-        const skipped = s.id === 'scrolling' && !autoScroll;
+        const skipped = (s.id === 'scrolling' && !autoScroll) || (s.id === 'emulating-width' && !emulate);
         const state = skipped ? 'skipped' : index < currentIndex || step === 'done' ? 'done' : index === currentIndex ? 'active' : 'pending';
         return (
           <li
@@ -35,7 +51,7 @@ export function ProgressSteps({ step, autoScroll }: { step: AnalysisStep; autoSc
             </span>
             <span className={state === 'active' ? 'font-semibold' : ''}>
               {s.label}
-              {skipped && ' (off in Settings)'}
+              {skipped && (s.id === 'scrolling' ? ' (off in Settings)' : ' (current window width)')}
             </span>
           </li>
         );

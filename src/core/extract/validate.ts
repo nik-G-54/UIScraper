@@ -36,10 +36,11 @@ export function validateCaptureResult(raw: unknown): ValidationOutcome {
     raw.meta,
     'meta',
     ['url', 'title', 'lang', 'dir', 'timestamp'],
-    ['viewportWidth', 'viewportHeight', 'devicePixelRatio', 'documentWidth', 'documentHeight'],
+    ['viewportWidth', 'viewportHeight', 'devicePixelRatio', 'documentWidth', 'documentHeight', 'captureWidth'],
   );
   if (metaProblem) return fail(metaProblem);
   const meta = raw.meta as Obj;
+  if (typeof meta.emulated !== 'boolean') return fail('meta.emulated must be a boolean');
   if (meta.colorSchemeMeta !== null && typeof meta.colorSchemeMeta !== 'string') {
     return fail('meta.colorSchemeMeta must be a string or null');
   }

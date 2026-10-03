@@ -35,11 +35,11 @@ function waitForDownload(id: number): Promise<void> {
 }
 
 /**
- * Save text as a file. The Blob and object URL live in this side panel page; chrome.downloads
- * fetches them. Resolves with the file name.
+ * Save a Blob as a file. The object URL lives in this side panel page; chrome.downloads fetches
+ * it. Resolves with the file name.
  */
-async function downloadText(content: string, filename: string, mime: string): Promise<string> {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+export async function downloadBlob(blob: Blob, filename: string): Promise<string> {
+  const url = URL.createObjectURL(blob);
   try {
     const id = await chrome.downloads.download({ url, filename, saveAs: false, conflictAction: 'uniquify' });
     await waitForDownload(id);
@@ -49,6 +49,11 @@ async function downloadText(content: string, filename: string, mime: string): Pr
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** Save text as a file. Resolves with the file name. */
+function downloadText(content: string, filename: string, mime: string): Promise<string> {
+  return downloadBlob(new Blob([content], { type: mime }), filename);
 }
 
 /** Save the raw capture as compact JSON. */

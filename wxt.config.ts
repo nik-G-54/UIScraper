@@ -11,7 +11,7 @@ export default defineConfig({
     name: 'DesignLens',
     description:
       "Personal-use tool that extracts a website's design and generates a design.md for AI coding agents.",
-    permissions: ['sidePanel', 'activeTab', 'scripting', 'storage', 'downloads', 'tabs'],
+    permissions: ['sidePanel', 'activeTab', 'scripting', 'storage', 'downloads', 'tabs', 'debugger'],
     host_permissions: ['<all_urls>'],
     // icons/ are auto-discovered from public/icon (npm run icons regenerates them).
     // An action is required so the toolbar icon exists; the background script makes
